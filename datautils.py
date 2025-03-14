@@ -117,7 +117,7 @@ class CodecApply(nn.Module):
         assert codec in ['ALAW', 'ULAW'] , "codec must be in ['ALAW', 'ULAW']"
         return torchaudio.functional.apply_codec(waveform=audio, sample_rate=self.sample_rate, format="wav", encoding=codec).squeeze(0)
     def forward(self, audio, codec=None):
-        # if the audio only have 1 dim, add a channel dim
+        # if the audio only have 1 dim, add a channel dim.
         if len(audio.shape) == 1:
             audio = audio.unsqueeze(0)
         encoding_list = ['ALAW', 'ULAW']
