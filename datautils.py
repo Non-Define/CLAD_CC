@@ -220,7 +220,7 @@ class ResampleAugmentation(nn.Module):
         self.resample_rate = resample_rate
         self.original_sr = original_sr   
         self.device = device  
-        # create the resample augmentations here to speed up the forward process  
+        # create the resample augmentations here to speed up the forward process.  
         self.resample_transforms = nn.ModuleList()
         for resample_rate in self.resample_rate:
             self.resample_transforms.append(torchaudio.transforms.Resample(orig_freq=self.original_sr, new_freq=resample_rate).to(device))
