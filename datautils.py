@@ -40,7 +40,6 @@ class AddWhiteNoise(nn.Module):
             min_snr_db = self.min_snr_db
         return self.add_white_noise(audio, max_snr_db, min_snr_db)
 
-
 class VolumeChange(nn.Module):
     def __init__(self, max_vol, min_vol):
         super(VolumeChange, self).__init__()
