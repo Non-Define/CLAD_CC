@@ -41,7 +41,6 @@ class AddWhiteNoise(nn.Module):
         return self.add_white_noise(audio, max_snr_db, min_snr_db)
 '''
 additional PinkNoise, VioletNoise, BlueNoise
-Start
 '''
 class AddPinkNoise(nn.Module):
     def __init__(self, max_snr_db, min_snr_db):
@@ -54,22 +53,18 @@ class AddPinkNoise(nn.Module):
         
 class AddVioletNoise(nn.Module):
     def __init__(self, max_snr_db, min_snr_db):
-        super(AddVioletNoise, self).__init__():
+        super(AddVioletNoise, self).__init__()
         self.max_snr_db = max_snr_db
         self.min_snr_db = min_snr_db
     def add_violet_noise(self, audio, max_snr_db, min_snr_db):
         
 class AddBlueNoise(nn.Module):
     def __init__(self,max_snr_db, min_snr_db):
-        super(AddBlueNoise, self).__init__():
+        super(AddBlueNoise, self).__init__()
         self.max_snr_db = max_snr_db
         self.min_snr_db = min_snr_db
     def add_blue_noise(self, audio, max_snr_db, min_snr_db):
         
-'''
-additional PinkNoise, VioletNoise, BlueNoise
-End
-'''
 
 class VolumeChange(nn.Module):
     def __init__(self, max_vol, min_vol):
@@ -320,6 +315,17 @@ class TimeShift(nn.Module):
             min_shift = self.min_shift
         shift_len = random.randint(min_shift, max_shift)
         return self.time_shift(audio, shift_len)
+'''
+Additional Pitch Shifting
+'''
+
+class PitchShift(nn.Module):
+    def __init__(self, max_shift, min_shift):
+        super(PitchShift, self).__init__()
+        self.max_shift = max_shift
+        self.min_shift = min_shift
+    
+    def pitch_shift(self,)
 
 class AddZeroPadding(nn.Module):
     def __init__(self, max_left_len, min_left_len, max_right_len, min_right_len):
