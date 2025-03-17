@@ -324,6 +324,7 @@ class PitchShift(nn.Module):
         super(PitchShift, self).__init__()
         self.max_shift = max_shift
         self.min_shift = min_shift
+        
     
     def pitch_shift(self,)
 
