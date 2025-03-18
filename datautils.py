@@ -130,6 +130,27 @@ class WaveTimeStretch(nn.Module):
         if n_fft == None:
             n_fft = self.n_fft
         return self.time_strech(audio, max_ratio, min_ratio, n_fft)
+'''
+Additional Pitch Shifting
+'''
+class PitchShift(nn.Module):
+    def __init__(self, max_pitch, min_pitch, sample_rate=16000, bins_per_octave=0):
+        super(PitchShift, self).__init__()
+        self.max_pitch = max_pitch
+        self.min_pitch = min_pitch
+        self.sample_rate = sample_rate
+        self.bins_per_octave = bins_per_octave
+    def pitch_shift(self, audio):
+        shift_ratio = random.uniform(min_pitch, max_pitch)
+        y_shift = librosa.effects.pitch_shift(audio, bins_per_octave=self.bins_per_octave,
+                                              sr=self.sample_rate, n_steps=shift_ratio)
+        return y_shift
+    def forward(self, audio, max_pitch=None, min_pitch=None):
+        if max_pitch == None:
+            max_pitch = self.max_pitch
+        if min_pitch == None:
+            min_pitch = self.min_pitch
+        return self.pitch_shift(audio, max_pitch, min_pitch)
 
 # Codec manipulation which is not introduced in the paper. This manipulation have little impact and have to be used on CPU.
 class CodecApply(nn.Module):
@@ -306,8 +327,8 @@ class TimeShift(nn.Module):
         self.min_shift = min_shift       
 
     def time_shift(self, audio:torch.Tensor, shift_len):
-        
         return audio.roll(shifts=shift_len, dims=-1)
+    
     def forward(self, audio, max_shift=None, min_shift=None):
         if max_shift == None:
             max_shift = self.max_shift
@@ -315,18 +336,6 @@ class TimeShift(nn.Module):
             min_shift = self.min_shift
         shift_len = random.randint(min_shift, max_shift)
         return self.time_shift(audio, shift_len)
-'''
-Additional Pitch Shifting
-'''
-
-class PitchShift(nn.Module):
-    def __init__(self, max_shift, min_shift):
-        super(PitchShift, self).__init__()
-        self.max_shift = max_shift
-        self.min_shift = min_shift
-        
-    
-    def pitch_shift(self,)
 
 class AddZeroPadding(nn.Module):
     def __init__(self, max_left_len, min_left_len, max_right_len, min_right_len):
