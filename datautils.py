@@ -131,7 +131,7 @@ class WaveTimeStretch(nn.Module):
             n_fft = self.n_fft
         return self.time_strech(audio, max_ratio, min_ratio, n_fft)
 '''
-Additional Pitch Shifting
+Additional Pitch Shifting, using librosa
 '''
 class PitchShift(nn.Module):
     def __init__(self, max_pitch, min_pitch, sample_rate=16000, bins_per_octave=0):
