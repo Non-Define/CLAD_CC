@@ -38,33 +38,7 @@ class AddWhiteNoise(nn.Module):
             max_snr_db = self.max_snr_db
         if min_snr_db == None:
             min_snr_db = self.min_snr_db
-        return self.add_white_noise(audio, max_snr_db, min_snr_db)
-'''
-additional PinkNoise, VioletNoise, BlueNoise
-'''
-class AddPinkNoise(nn.Module):
-    def __init__(self, max_snr_db, min_snr_db):
-        super(AddPinkNoise, self).__init__()
-        self.max_snr_db = max_snr_db
-        self.min_snr_db = min_snr_db
-    def add_pink_noise(self, audio, max_snr_db, min_snr_db):
-        
-        
-        
-class AddVioletNoise(nn.Module):
-    def __init__(self, max_snr_db, min_snr_db):
-        super(AddVioletNoise, self).__init__()
-        self.max_snr_db = max_snr_db
-        self.min_snr_db = min_snr_db
-    def add_violet_noise(self, audio, max_snr_db, min_snr_db):
-        
-class AddBlueNoise(nn.Module):
-    def __init__(self,max_snr_db, min_snr_db):
-        super(AddBlueNoise, self).__init__()
-        self.max_snr_db = max_snr_db
-        self.min_snr_db = min_snr_db
-    def add_blue_noise(self, audio, max_snr_db, min_snr_db):
-        
+        return self.add_white_noise(audio, max_snr_db, min_snr_db)   
 
 class VolumeChange(nn.Module):
     def __init__(self, max_vol, min_vol):
