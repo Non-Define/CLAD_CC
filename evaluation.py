@@ -4,12 +4,12 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import yaml  # used by RawNet2 to read the configuration
 import json  # used to read config file
-import AASIST  # official AASIST implementation from https://github.com/clovaai/aasist/blob/main/models/AASIST.py
+import aasist  # official AASIST implementation from https://github.com/clovaai/aasist/blob/main/models/AASIST.py
 import os
 import IPython.display as ipd  # used to display audio
 from tqdm import tqdm  # progress bar
-from Model import  DownStreamLinearClassifier, RawNetEncoderBaseline, RawNetBaseline, SSDNet1D, SAMOArgs  # SSDNet is the Res-TSSDNet Model
-from DatasetUtils import genSpoof_list, Dataset_ASVspoof2019_train  # ASVspoof dataset utils
+from model import  DownStreamLinearClassifier, RawNetEncoderBaseline, RawNetBaseline, SSDNet1D, SAMOArgs  # SSDNet is the Res-TSSDNet Model
+from datautils import genSpoof_list, Dataset_ASVspoof2019_train  # ASVspoof dataset utils
 # Used to get the evaluation metrics
 from sklearn.metrics import roc_auc_score, f1_score, balanced_accuracy_score
 from evaluate_tDCF_asvspoof19 import compute_eer
@@ -17,10 +17,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 # Manipulation classes used
-from DatasetUtils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, AddFade, ResampleAugmentation, pad_or_clip_batch
+from datautils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, PitchShift, AddFade, ResampleAugmentation, pad_or_clip_batch
 import torchaudio.transforms
-from samo.samo.loss import SAMO
-from samo.samo.main import get_loader,init_params,update_embeds
 
 # set random seed
 torch.manual_seed(0)
@@ -39,38 +37,6 @@ with open("./config.conf", "r") as f_json:
     config = json.loads(f_json.read())
     
 def load_model(model_name:str, config:dict):
-    if model_name == "RawNet2":
-        dir_yaml = config['rawnet2_config_path']
-        with open(dir_yaml, 'r') as f_yaml:
-            parser1 = yaml.safe_load(f_yaml)
-        rawnet2_model_path = config['rawnet2_model_path']
-        rawnet2_model = RawNetBaseline(parser1['model'], device)
-        rawnet2_model = rawnet2_model.to(device)
-        rawnet2_model.load_state_dict(torch.load(rawnet2_model_path,map_location=device))
-        print('RawNetBaseline model loaded : {}'.format(rawnet2_model_path))
-        nb_params = sum([param.view(-1).size()[0] for param in rawnet2_model.parameters()])
-        print(f"Number of Rawnet2 params:{nb_params}")
-        return rawnet2_model
-    if model_name == "AASIST":
-        with open(config['aasist_config_path'], "r") as f_json:
-            aasist_config = json.loads(f_json.read())
-        aasist_model_config = aasist_config["model_config"]
-        aasist_model = AASIST.Model(aasist_model_config).to(device)
-        nb_params = sum([param.view(-1).size()[0] for param in aasist_model.parameters()])
-        print("Number of AASIST params:{}".format(nb_params))
-        aasist_model.load_state_dict(
-            torch.load(config['aasist_model_path'], map_location=device))
-        print("Model loaded : {}".format(config["aasist_model_path"]))
-        return aasist_model
-    if model_name == "ResTSSDNetModel":
-        res_tssdnet_model = SSDNet1D()
-        check_point = torch.load(config['res_tssdnet_model_path'])
-        res_tssdnet_model.load_state_dict(check_point['model_state_dict'])
-        res_tssdnet_model = res_tssdnet_model.to(device)
-        return res_tssdnet_model
-    if model_name == "SAMO":
-        samo_model =torch.load(config['samo_model_path']).to(device)
-        return samo_model
     if model_name == "CLAD":
         with open(config['aasist_config_path'], "r") as f_json:        
             aasist_config = json.loads(f_json.read())
