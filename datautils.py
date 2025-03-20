@@ -310,14 +310,6 @@ class TimeShift(nn.Module):
             min_shift = self.min_shift
         shift_len = random.randint(min_shift, max_shift)
         return self.time_shift(audio, shift_len)
-    
-class TimeMasking(nn.Module):
-    def __init__(self, ):
-        super(TimeMasking, self).__init__()
-        
-class FrequencyMasking(nn.Module):
-    def __init__(self, ):
-        super(FrequencyMasking, self).__init__()
 
 class AddZeroPadding(nn.Module):
     def __init__(self, max_left_len, min_left_len, max_right_len, min_right_len):
