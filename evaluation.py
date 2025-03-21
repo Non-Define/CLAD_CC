@@ -7,6 +7,7 @@ import json  # used to read config file
 import aasist  # official AASIST implementation from https://github.com/clovaai/aasist/blob/main/models/AASIST.py
 import os
 import IPython.display as ipd  # used to display audio
+import aasist
 from tqdm import tqdm  # progress bar
 from model import  DownStreamLinearClassifier, RawNetEncoderBaseline, RawNetBaseline, SSDNet1D, SAMOArgs  # SSDNet is the Res-TSSDNet Model
 from datautils import genSpoof_list, Dataset_ASVspoof2019_train  # ASVspoof dataset utils
