@@ -31,7 +31,7 @@ gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
 
 # Load Config file
-with open("./config.conf", "r") as f_json:
+with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
     config = json.loads(f_json.read())
     
 def load_model(model_name:str, config:dict):
