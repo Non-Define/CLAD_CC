@@ -40,7 +40,7 @@ def load_model(model_name:str, config:dict):
         with open(config['aasist_config_path'], "r") as f_json:        
             aasist_config = json.loads(f_json.read())
         aasist_model_config = aasist_config["model_config"]
-        aasist_encoder = AASIST.AasistEncoder(aasist_model_config).to(device)
+        aasist_encoder = aasist.AasistEncoder(aasist_model_config).to(device)
         downstream_model = DownStreamLinearClassifier(aasist_encoder, input_depth=160)
         checkpoint = torch.load(config['clad_model_path_for_evaluation'], map_location=device)
         downstream_model.load_state_dict(checkpoint["state_dict"])
