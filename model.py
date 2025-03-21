@@ -151,10 +151,8 @@ class MoCo_v2(nn.Module):
 #     param.numel() for param in torch.nn.TransformerDecoderLayer(d_model=last_hidden_state.shape[-1], nhead=8, batch_first=True).parameters()
 # )
 # print(total_params)
-
-
-
 # define the encoder which is just a MLP
+
 class ContrastiveLearningEncoderMLP(nn.Module):
     # init a wav2vec2 model
     def __init__(self, wav2vec2_path):
