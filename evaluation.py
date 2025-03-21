@@ -20,16 +20,14 @@ import numpy as np
 from datautils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, PitchShift, AddFade, ResampleAugmentation, pad_or_clip_batch
 import torchaudio.transforms
 
-# set random seed
-torch.manual_seed(0)
 
-# set device
+torch.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 # Evaluation Configurations
 batch_size = 32
-gpu = 1  # GPU id to use
+gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
 
 # Load Config file
@@ -170,7 +168,6 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
     return  get_eval_metrics(score_save_path=score_save_path, plot_figure=False)# TODO: return EER, AUC and other things when I implement
 
 evaluation_results = {}  # create a empty dict to store the results
-
 noise_dataset_path = config['noise_dataset_path']
 manipulations = {
     "no_augmentation": None,
@@ -209,26 +206,18 @@ manipulations = {
     "resample_17000": ResampleAugmentation([17000], device="cuda"),
 }
 
-for model_name in ["RawNet2", "AASIST","ResTSSDNetModel","SAMO","CLAD"]:
-    if model_name == "ResTSSDNetModel":
-        cut_length = 96000
-    elif model_name == "RawNet2":
-        cut_length = 64600  # 64000 in paper. However we found it used 64600 in the implementation(https://github.com/asvspoof-challenge/2021/blob/main/LA/Baseline-RawNet2/data_utils.py) 
-    else:
+for model_name in ["CLAD"]:
+    if model_name == "CLAD":
         cut_length = 64600
-
     model = load_model(model_name,config)
     for (manipulation_name, manipulation) in manipulations.items():
         filename_prefix = model_name
         evaluation_results[manipulation_name] = evaluation_19_LA_eval(model=model, model_name=model_name, database_path=config['database_path'], batch_size = batch_size, augmentations=manipulation, score_save_path=f"scores/{filename_prefix}_{manipulation_name}_eval_19_LA_score.txt", cut_length=cut_length)
         print(f"--------{manipulation_name} finished.--------")
-        
 # Show Result of fix threshold(selected by EER)
 # The results of white noise injection may have a small difference as there are randomness in the white noise generation.
-
 results = {}
-
-for model_name in ["RawNet2", "AASIST","ResTSSDNetModel","SAMO","CLAD"]:
+for model_name in ["CLAD"]:
     results[model_name] = {}
     # get EER threshold
     print("-----Results for model:", model_name, "-----")
