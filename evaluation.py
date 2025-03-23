@@ -6,6 +6,7 @@ import yaml  # used by RawNet2 to read the configuration
 import json  # used to read config file
 import aasist  # official AASIST implementation from https://github.com/clovaai/aasist/blob/main/models/AASIST.py
 import os
+import random
 import IPython.display as ipd  # used to display audio
 import aasist
 from tqdm import tqdm  # progress bar
@@ -20,6 +21,7 @@ import numpy as np
 # Manipulation classes used
 from datautils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, PitchShift, AddFade, ResampleAugmentation, pad_or_clip_batch
 import torchaudio.transforms
+
 
 
 
@@ -162,6 +164,10 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
 evaluation_results = {}  # create a empty dict to store the results
 noise_dataset_path = config['noise_dataset_path']
 manipulations = {
+    "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
+    "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
+    "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
+    "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
     "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
     "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
     "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
