@@ -95,7 +95,7 @@ class WaveTimeStretch(nn.Module):
         self.n_fft = n_fft
     def time_strech(self, audio, max_ratio, min_ratio, n_fft):
         stretch_ratio = random.uniform(min_ratio, max_ratio)
-        return TorchTimeStretch.time_stretch(input=audio, stretch=stretch_ratio, sample_rate=self.sample_rate, n_fft=n_fft)
+        return timestretch.time_stretch(input=audio, stretch=stretch_ratio, sample_rate=self.sample_rate, n_fft=n_fft)
     def forward(self, audio, max_ratio=None, min_ratio=None, n_fft=None):
         if max_ratio == None:
             max_ratio = self.max_ratio
