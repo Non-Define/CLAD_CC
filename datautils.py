@@ -7,7 +7,7 @@ import os
 import random
 import torch
 import torchaudio
-import torch_time_stretch
+import timestretch
 import torch.nn as nn
 import numpy as np
 from torch.utils.data import Dataset
