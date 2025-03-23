@@ -11,7 +11,7 @@ import IPython.display as ipd  # used to display audio
 import aasist
 from tqdm import tqdm  # progress bar
 from model import  DownStreamLinearClassifier, RawNetEncoderBaseline, RawNetBaseline, SSDNet1D, SAMOArgs  # SSDNet is the Res-TSSDNet Model
-from datautils import genSpoof_list, Dataset_ASVspoof2019_train  # ASVspoof dataset utils
+from cpudatautils import genSpoof_list, Dataset_ASVspoof2019_train  # ASVspoof dataset utils
 # Used to get the evaluation metrics
 from sklearn.metrics import roc_auc_score, f1_score, balanced_accuracy_score
 from evaluate_tDCF_asvspoof19 import compute_eer
