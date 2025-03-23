@@ -124,7 +124,7 @@ class PitchShift(nn.Module):
             max_pitch = self.max_pitch
         if min_pitch == None:
             min_pitch = self.min_pitch
-        return self.pitch_shift(audio, max_pitch, min_pitch)
+        return self.pitch_shift(audio, max_pitch, min_pitch, bins_per_octave)
 
 # Codec manipulation which is not introduced in the paper. This manipulation have little impact and have to be used on CPU.
 class CodecApply(nn.Module):
