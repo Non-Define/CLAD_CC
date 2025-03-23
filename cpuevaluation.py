@@ -19,10 +19,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 # Manipulation classes used
-from datautils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, PitchShift, AddFade, ResampleAugmentation, pad_or_clip_batch
+from cpudatautils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, PitchShift, AddFade, ResampleAugmentation, pad_or_clip_batch
 import torchaudio.transforms
-
-
 
 
 torch.manual_seed(0)
@@ -85,6 +83,11 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
     print('no. of ASVspoof 2019 LA evaluating trials', len(file_eval))
     asvspoof_LA_eval_dataset = Dataset_ASVspoof2019_train(list_IDs=file_eval, labels=d_label_trn, base_dir=os.path.join(
         database_path+'ASVspoof2019_LA_eval/'), cut_length=cut_length, utt2spk=utt2spk)
+    
+    total_data = len(asvspoof_LA_eval_dataset)
+    sample_size = int(total_data * 0.01)  # 1% 샘플링
+    indices = random.sample(range(total_data), sample_size)
+    sampled_data = torch.utils.data.Subset(asvspoof_LA_eval_dataset, indices)
     asvspoof_2019_LA_eval_dataloader = DataLoader(asvspoof_LA_eval_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)  # added num_workders param to speed up.
     with open(score_save_path, 'w') as file:  # This creates an empty file or empties an existing file
         pass
