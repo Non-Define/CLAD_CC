@@ -114,12 +114,12 @@ class PitchShift(nn.Module):
         self.min_pitch = min_pitch
         self.sample_rate = sample_rate
         self.bins_per_octave = bins_per_octave
-    def pitch_shift(self, audio):
+    def pitch_shift(self, audio, max_pitch, min_pitch, bins_per_octave):
         shift_ratio = random.uniform(min_pitch, max_pitch)
         y_shift = librosa.effects.pitch_shift(audio, bins_per_octave=self.bins_per_octave,
                                               sr=self.sample_rate, n_steps=shift_ratio)
         return y_shift
-    def forward(self, audio, max_pitch=None, min_pitch=None):
+    def forward(self, audio, max_pitch=None, min_pitch=None, bins_per_octave=None):
         if max_pitch == None:
             max_pitch = self.max_pitch
         if min_pitch == None:
