@@ -114,11 +114,15 @@ class PitchShift(nn.Module):
         self.min_pitch = min_pitch
         self.sample_rate = sample_rate
         self.bins_per_octave = bins_per_octave
-    def pitch_shift(self, audio, max_pitch, min_pitch, bins_per_octave):
+    def pitch_shift(self, audio_tensor, max_pitch, min_pitch, bins_per_octave):
+        # Tensor → NumPy
+        audio_np = audio_tensor.cpu().numpy()
         shift_ratio = random.uniform(min_pitch, max_pitch)
-        y_shift = librosa.effects.pitch_shift(audio.numpy(), bins_per_octave=self.bins_per_octave,
+        y_shift = librosa.effects.pitch_shift(audio_np, bins_per_octave=self.bins_per_octave,
                                               sr=self.sample_rate, n_steps=shift_ratio)
-        return y_shift
+        # NumPy → Tensor 
+        audio_shifted_tensor = torch.tensor(y_shift, dtype=audio_tensor.dtype) #after use cuda, add device=audio_tensor.device
+        return audio_shifted_tensor
     def forward(self, audio, max_pitch=None, min_pitch=None, bins_per_octave=None):
         if max_pitch == None:
             max_pitch = self.max_pitch
