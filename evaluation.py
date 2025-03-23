@@ -6,7 +6,6 @@ import yaml  # used by RawNet2 to read the configuration
 import json  # used to read config file
 import aasist  # official AASIST implementation from https://github.com/clovaai/aasist/blob/main/models/AASIST.py
 import os
-import random
 import IPython.display as ipd  # used to display audio
 import aasist
 from tqdm import tqdm  # progress bar
@@ -24,9 +23,14 @@ import torchaudio.transforms
 
 
 
-
 torch.manual_seed(0)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+
+# Evaluation Configurations
 batch_size = 32
+gpu = 0  # GPU id to use
+torch.cuda.set_device(gpu)
 
 # Load Config file
 with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
@@ -37,10 +41,11 @@ def load_model(model_name:str, config:dict):
         with open(config['aasist_config_path'], "r") as f_json:        
             aasist_config = json.loads(f_json.read())
         aasist_model_config = aasist_config["model_config"]
-        aasist_encoder = aasist.AasistEncoder(aasist_model_config)
+        aasist_encoder = aasist.AasistEncoder(aasist_model_config).to(device)
         downstream_model = DownStreamLinearClassifier(aasist_encoder, input_depth=160)
-        checkpoint = torch.load(config['clad_model_path_for_evaluation'])
+        checkpoint = torch.load(config['clad_model_path_for_evaluation'], map_location=device)
         downstream_model.load_state_dict(checkpoint["state_dict"])
+        downstream_model = downstream_model.to(device)
         return downstream_model
     
 # Calculate the metrics, if the threshold is not given, the threshold output by the EER calculation will be used.
@@ -80,6 +85,7 @@ def get_eval_metrics(score_save_path, plot_figure=True, given_threshold=None, pr
 def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
     # In asvspoof dataset, label = 1 means bonafide.
     model.eval()
+    device = "cuda"
     # load asvspoof 2019 LA eval dataset
     d_label_trn, file_eval, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.eval.trl.txt", is_train=False, is_eval=False)
     print('no. of ASVspoof 2019 LA evaluating trials', len(file_eval))
@@ -95,17 +101,17 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
         samo_args.target = False  # we use all the evaluation data, rather than only the target data
         # print(samo_args)
         _, _, eval_data_loader, train_bona_loader, _, eval_enroll_loader, _ = get_loader(samo_args)
-        samo = SAMO(samo_args.enc_dim, m_real=samo_args.m_real, m_fake=samo_args.m_fake, alpha=samo_args.alpha)
+        samo = SAMO(samo_args.enc_dim, m_real=samo_args.m_real, m_fake=samo_args.m_fake, alpha=samo_args.alpha).to(device)
         if samo_args.val_sp:
             # define and update eval centers
-            eval_enroll = update_embeds(model, eval_enroll_loader)
+            eval_enroll = update_embeds(samo_args.device, model, eval_enroll_loader)
         else:  # use training centers without eval enrollment
             if samo_args.one_hot:
                 spklist = ['LA_00' + str(spk_id) for spk_id in range(79, 99)]
                 tmp_center = torch.eye(samo_args.enc_dim)[:20]
                 eval_enroll = dict(zip(spklist, tmp_center))
             else:
-                eval_enroll = update_embeds(model, train_bona_loader)
+                eval_enroll = update_embeds(samo_args.device, model, train_bona_loader)
         samo.center = torch.stack(list(eval_enroll.values()))
 
     with torch.no_grad():
@@ -115,6 +121,8 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
             audio_input = audio_input.squeeze(1)
             if augmentations_on_cpu != None:
                 audio_input = augmentations_on_cpu(audio_input)
+            
+            audio_input = audio_input.to(device)
 
             if augmentations != None:
                 if manipulation_on_real == False:
@@ -178,13 +186,13 @@ manipulations = {
     "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
     "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
     "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, noise_category="wind", noise_dataset_path=noise_dataset_path),
-    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, noise_category="breathing", noise_dataset_path=noise_dataset_path),
-    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, noise_category="coughing", noise_dataset_path=noise_dataset_path),
-    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, noise_category="rain", noise_dataset_path=noise_dataset_path),
-    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
+    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
+    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
     "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
     "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
     "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
@@ -198,10 +206,10 @@ manipulations = {
     "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
     "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
     "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
-    "resample_15000": ResampleAugmentation([15000]),
-    "resample_15500": ResampleAugmentation([15500]),
-    "resample_16500": ResampleAugmentation([16500]),
-    "resample_17000": ResampleAugmentation([17000]),
+    "resample_15000": ResampleAugmentation([15000], device="cuda"),
+    "resample_15500": ResampleAugmentation([15500], device="cuda"),
+    "resample_16500": ResampleAugmentation([16500], device="cuda"),
+    "resample_17000": ResampleAugmentation([17000], device="cuda"),
 }
 
 for model_name in ["CLAD"]:
