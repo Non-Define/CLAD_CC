@@ -171,6 +171,10 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
 evaluation_results = {}  # create a empty dict to store the results
 noise_dataset_path = config['noise_dataset_path']
 manipulations = {
+    "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
+    "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
+    "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
+    "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
     "no_augmentation": None,
     "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
     "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
@@ -184,10 +188,6 @@ manipulations = {
     "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
     "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
     "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
-    "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
-    "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
-    "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
-    "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
     "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
     "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
     "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
