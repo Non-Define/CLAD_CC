@@ -241,15 +241,14 @@ class ResampleAugmentation(nn.Module):
     '''
     Since the resample takes a lot of time, we setup some predefined resample rate and randomly choose one of them to speed up.
     '''
-    def __init__(self, resample_rate: list, original_sr: int=16000, device="cuda"):
+    def __init__(self, resample_rate: list, original_sr: int=16000):
         super(ResampleAugmentation, self).__init__()
         self.resample_rate = resample_rate
         self.original_sr = original_sr   
-        self.device = device  
         # create the resample augmentations here to speed up the forward process.  
         self.resample_transforms = nn.ModuleList()
         for resample_rate in self.resample_rate:
-            self.resample_transforms.append(torchaudio.transforms.Resample(orig_freq=self.original_sr, new_freq=resample_rate).to(device))
+            self.resample_transforms.append(torchaudio.transforms.Resample(orig_freq=self.original_sr, new_freq=resample_rate))
     def forward(self, audio):
         # choose a random resample transform from self.resample_transforms
         resample_transform = random.choice(self.resample_transforms)
