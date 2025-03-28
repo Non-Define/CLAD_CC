@@ -28,7 +28,7 @@ add_info = "Noise_Echo_FMA"
 lr_min=0.00001
 str_lr_min = "1e-5"
 
-# Path to the *.CSV file  list of files for training and validation
+
 train_data = pd.read_csv("/home/hwang-gyuhan/Workspace/DenseNet/ForTraining&Testing/train_valid_data.csv")
 
 # Verify if CSV file is qualified
