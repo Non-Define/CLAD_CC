@@ -32,7 +32,8 @@ batch_size = 32
 gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
 
-# Load Config file
+# Load 020220hgh
+# file
 with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
     config = json.loads(f_json.read())
     
