@@ -31,7 +31,7 @@ str_lr_min = "1e-5"
 
 train_data = pd.read_csv("/home/hwang-gyuhan/Workspace/DenseNet/ForTraining&Testing/train_valid_data.csv")
 
-# Veri
+# Ve
 for i in range(train_data.genre_name.shape[0]):
     train_data.genre_name.loc[i] = ast.literal_eval(train_data.genre_name[i])
 
