@@ -4,7 +4,6 @@ The code was referenced from the
 '''
 
 # import libraries
-
 import numpy as np 
 import pandas as pd 
 import glob
@@ -12,51 +11,73 @@ import os
 import datetime
 import csv, ast
 import pickle
+import yaml
+import json
+
+import torch
+from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
+import IPython.display as ipd
+import torchaudio.tracsforms
 import matplotlib.pyplot as plt
+
+# from sklearn.metrics import roc_auc_score, f1_score, balanced_accuracy_score
+# FAR, FRR, EER, F1_score 구현
+
 from datautils import *
-from model import 
+from moco_downstream import *
 import aasist
 from evaluate_tDCF_asvspoof19 import compute_eer
 import warnings
 warnings.filterwarnings('ignore')
 #-------------------------------------------------------------------
+torch.manual_seed(0)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+gpu = 0  # GPU id to use
+torch.cuda.set_device(gpu)
+print(device)
 
-number_class = 8 
-batch_sz = 32
-nepoch = 150
-add_info = "Noise_Echo_FMA"
-lr_min=0.00001
-str_lr_min = "1e-5"
+# hyper parameters
+batch = 24
+epoch = 150
+lr = 0.0005
+#-------------------------------------------------------------------
+with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
+    config = json.loads(f_json.read())
 
+def load_model(model_name:str, config:dict):
+    if model_name == "CLAD":
+        with open(config['aasist_config_path'], "r") as f_json:        
+            aasist_config = json.loads(f_json.read())
+        aasist_model_config = aasist_config["model_config"]
+        aasist_encoder = aasist.AasistEncoder(aasist_model_config).to(device)
+        return aasist_encoder
 
-train_data = pd.read_csv("/home/hwang-gyuhan/Workspace/DenseNet/ForTraining&Testing/train_valid_data.csv")
+def classification_data(database_path):
+    bonafide_data = []
+    spoof_data = []
+    classification_file = database_path + "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"
+    with open(classification_file, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 2:
+                continue
+            utt_id = parts[1]  # ex) LA_T_9987202
+            label = parts[-1]  # bonafide or spoof
+            if label == 'bonafide' and utt_id.startswith('LA_T_'):
+                bonafide_data.append(utt_id)
+            elif label == 'spoof' and utt_id.startswith('LA_T_'):
+                spoof_data.append(utt_id)
+    return bonafide_data, spoof_data
 
-# Ve
-for i in range(train_data.genre_name.shape[0]):
-    train_data.genre_name.loc[i] = ast.literal_eval(train_data.genre_name[i])
-
-
-
-# Path to directory containing image files *.png
-train_img_path = "/home/hwang-gyuhan/Workspace/dataset/FMA_IMAGES/"
-
-# 8 music genres of FMA
-name_class = ["Electronic",
-            "Experimental",
-            "Folk",
-            "Hip_Hop",
-            "Instrumental",
-            "International",
-            "Pop",
-            "Rock"
-    ]
-def data_generator(train, val):
+def train_generator(train, database_path):
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(list_IDs=file_eval, labels=d_label_trn, base_dir=os.path.join(
+        database_path+'ASVspoof2019_LA_train/'), cut_length=cut_length, utt2spk=utt2spk)
     train_datagen = ImageDataGenerator(rescale=1/255.)
-    val_datagen = ImageDataGenerator(rescale=1/255.)
 
     train_generator = train_datagen.flow_from_dataframe(
         dataframe=train,
-        directory=train_img_path,
+        directory=database_path+"ASVspoof2019_LA_train/flac/",
         x_col="song_id",
         y_col="genre_name",
         batch_size=batch_sz,
@@ -65,19 +86,7 @@ def data_generator(train, val):
         class_mode='categorical',
         classes=name_class
     )
-    val_generator = val_datagen.flow_from_dataframe(
-        dataframe=val,
-        directory=train_img_path,
-        x_col="song_id",
-        y_col="genre_name",
-        batch_size=batch_sz,
-        target_size=(224,224),
-        shuffle=False,
-        class_mode='categorical',
-        classes=name_class
-    )   
-    return train_generator, val_generator
-
+    return train_generator
 
 class SaveEvery10Epochs(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
