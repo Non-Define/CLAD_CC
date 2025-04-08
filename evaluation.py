@@ -95,6 +95,7 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
     asvspoof_2019_LA_eval_dataloader = DataLoader(asvspoof_LA_eval_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)  # added num_workders param to speed up.
     with open(score_save_path, 'w') as file:  # This creates an empty file or empties an existing file
         pass
+    
     if model_name == "SAMO":
         samo_args = SAMOArgs()
         samo_args.path_to_database = config['database_path'][:-3]  # SAMO default path does not include "/LA"
