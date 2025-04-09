@@ -431,7 +431,6 @@ def genSpoof_list( dir_meta,is_train=False,is_eval=False):
             d_meta[key] = 1 if label == 'bonafide' else 0
         return d_meta,file_list,utt2spk
 
-
 def pad(x, max_len=64600):
     x_len = x.shape[0]
     if x_len >= max_len:
@@ -455,7 +454,6 @@ class Dataset_ASVspoof2019_train(Dataset):
         
     def __len__(self):
            return len(self.list_IDs)
-
 
     def __getitem__(self, index):
             # self.cut=64600 # take ~4 sec audio (64600 samples)
