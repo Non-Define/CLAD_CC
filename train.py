@@ -53,28 +53,21 @@ def load_model(model_name:str, config:dict):
         aasist_encoder = aasist.AasistEncoder(aasist_model_config).to(device)
         return aasist_encoder
 
-def classification_data(database_path):
-    bonafide_data = []
-    spoof_data = []
-    classification_file = database_path + "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"
-    with open(classification_file, 'r') as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) < 2:
-                continue
-            utt_id = parts[1]  # ex) LA_T_9987202
-            label = parts[-1]  # bonafide or spoof
-            if label == 'bonafide' and utt_id.startswith('LA_T_'):
-                bonafide_data.append(utt_id)
-            elif label == 'spoof' and utt_id.startswith('LA_T_'):
-                spoof_data.append(utt_id)
-    return bonafide_data, spoof_data
-
-def train_generator(train, database_path):
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(list_IDs=file_eval, labels=d_label_trn, base_dir=os.path.join(
+def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
+    # In asvspoof dataset, label = 1 means bonafide.
+    model.eval()
+    device = "cuda"
+    # load asvspoof 2019 LA train dataset
+    d_label_trn, file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
+    print('no. of ASVspoof 2019 LA training trials', len(file_train))
+    asvspoof_LA_eval_dataset = Dataset_ASVspoof2019_train(list_IDs=file_train, labels=d_label_trn, base_dir=os.path.join(
         database_path+'ASVspoof2019_LA_train/'), cut_length=cut_length, utt2spk=utt2spk)
-    train_datagen = ImageDataGenerator(rescale=1/255.)
+    asvspoof_2019_LA_train_dataloader = DataLoader(asvspoof_LA_train_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)  # added num_workders param to speed up.
+    with open(score_save_path, 'w') as file:  # This creates an empty file or empties an existing file
+        pass
 
+def train_generator(train):
+    train_datagen = ImageDataGenerator(rescale=1/255.)
     train_generator = train_datagen.flow_from_dataframe(
         dataframe=train,
         directory=database_path+"ASVspoof2019_LA_train/flac/",
