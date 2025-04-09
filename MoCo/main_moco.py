@@ -15,8 +15,8 @@ import shutil
 import time
 import warnings
 
-import deeplearning.cross_image_ssl.moco.builder
-import deeplearning.cross_image_ssl.moco.loader
+from builder import * 
+from datautils import * 
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -37,7 +37,7 @@ model_names = sorted(
     if name.islower() and not name.startswith("__") and callable(models.__dict__[name])
 )
 
-parser = argparse.ArgumentParser(description="PyTorch ImageNet Training")
+parser = argparse.ArgumentParser(description="PyTorch Test Training")
 parser.add_argument("data", metavar="DIR", help="path to dataset")
 parser.add_argument(
     "-a",
@@ -56,7 +56,7 @@ parser.add_argument(
     help="number of data loading workers (default: 32)",
 )
 parser.add_argument(
-    "--epochs", default=200, type=int, metavar="N", help="number of total epochs to run"
+    "--epochs", default=150, type=int, metavar="N", help="number of total epochs to run"
 )
 parser.add_argument(
     "--start-epoch",
@@ -68,7 +68,7 @@ parser.add_argument(
 parser.add_argument(
     "-b",
     "--batch-size",
-    default=256,
+    default=24,
     type=int,
     metavar="N",
     help="mini-batch size (default: 256), this is the total "
@@ -78,7 +78,7 @@ parser.add_argument(
 parser.add_argument(
     "--lr",
     "--learning-rate",
-    default=0.03,
+    default=0.0005,
     type=float,
     metavar="LR",
     help="initial learning rate",
@@ -288,7 +288,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 
-    optimizer = torch.optim.SGD(
+    optimizer = torch.optim.Adam(
         model.parameters(),
         args.lr,
         momentum=args.momentum,
