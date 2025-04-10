@@ -18,17 +18,12 @@ class MoCo_v2(nn.Module):
         # self.weight_decay = 1e-4  # follow the official implementation
         self.mlp = mlp
         self.projection_dim = 128
-        
         self.encoder_q = encoder_q
         self.encoder_k = encoder_k
-
-
         # make sure that two encoders have the same params
         self.encoder_k.load_state_dict(self.encoder_q.state_dict())
-
         self.queue_feature_dim = queue_feature_dim
          
-             
         if mlp: # if projection head is used
             self.projection_head_q = nn.Sequential(
                 nn.Linear(queue_feature_dim, queue_feature_dim),
@@ -60,7 +55,6 @@ class MoCo_v2(nn.Module):
         self = super(MoCo_v2, self).to(*args, **kwargs)
         self.queue = self.queue.to(*args, **kwargs)
         return self
-        
 
     @torch.no_grad()    
     def momentum_update(self):
@@ -73,7 +67,6 @@ class MoCo_v2(nn.Module):
             for param_q, param_k in zip(self.projection_head_q.parameters(), self.projection_head_k.parameters()):
                 param_k.data = param_k.data * self.momentum + param_q.data * (1. - self.momentum)
 
-
     @torch.no_grad()        
     def dequeue_and_enqueue(self, keys):
         """
@@ -85,7 +78,6 @@ class MoCo_v2(nn.Module):
         # Enqueue the keys into the queue
         self.queue[self.queue_ptr:self.queue_ptr+batch_size] = keys
         self.queue_ptr = (self.queue_ptr + batch_size) % self.queue.shape[0]
-        
         
     def forward(self, x_q, x_k):
         """
@@ -139,7 +131,6 @@ class MoCo_v2(nn.Module):
         else:
             return logits, labels
 
-
 # # print how many parameters the New Transformer Decoder Layer has
 # total_params = sum(
 #     param.numel() for param in TransformerDecoderAggregatorLayer(d_model=last_hidden_state.shape[-1], nhead=8, batch_first=True).parameters()
@@ -163,7 +154,6 @@ class ContrastiveLearningEncoderMLP(nn.Module):
         self.fc2 = nn.Linear(256, 1024)
 
         self.feature_dim = 1024  # the final out put will be 1024 dims.
-
 
     # define the forward function, the input x should be a batch of audio files, has shape (batch_size, 64600), and the output should have shape (batch_size, 1024)    
     def forward(self, x):
@@ -196,7 +186,6 @@ class DownStreamTwoLayerClassifier(nn.Module):
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(128, 2)  
 
-
     def forward(self, x):
         x = self.encoder(x)
         x = self.fc1(x)
@@ -226,7 +215,6 @@ class DownStreamThreeLayerClassifier(nn.Module):
         x = x.squeeze(1)
         return x
 
-
 # RawNet2 Baseline implementation from ASVspoof 2021 baseline, original author: Hemlata Tak
 import numpy as np
 from collections import OrderedDict
@@ -236,11 +224,10 @@ class SincConvBaseline(nn.Module):
     @staticmethod
     def to_mel(hz):
         return 2595 * np.log10(1 + hz / 700)
-
+    
     @staticmethod
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
-
 
     def __init__(self, device,out_channels, kernel_size,in_channels=1,sample_rate=16000,
                  stride=1, padding=0, dilation=1, bias=False, groups=1):
@@ -255,11 +242,9 @@ class SincConvBaseline(nn.Module):
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.sample_rate=sample_rate
-
         # Forcing the filters to be odd (i.e, perfectly symmetrics)
         if kernel_size%2==0:
             self.kernel_size=self.kernel_size+1
-
         self.device=device   
         self.stride = stride
         self.padding = padding
@@ -269,7 +254,6 @@ class SincConvBaseline(nn.Module):
             raise ValueError('SincConvBaseline does not support bias.')
         if groups > 1:
             raise ValueError('SincConvBaseline does not support groups.')
-        
         
         # initialize filterbanks using Mel scale
         NFFT = 512
@@ -283,8 +267,6 @@ class SincConvBaseline(nn.Module):
         self.hsupp=torch.arange(-(self.kernel_size-1)/2, (self.kernel_size-1)/2+1)
         self.band_pass=torch.zeros(self.out_channels,self.kernel_size)
     
-       
-        
     def forward(self,x):
         for i in range(len(self.mel)-1):
             fmin=self.mel[i]
@@ -302,8 +284,6 @@ class SincConvBaseline(nn.Module):
         return F.conv1d(x, self.filters, stride=self.stride,
                         padding=self.padding, dilation=self.dilation,
                          bias=None, groups=1)
-
-
         
 class Residual_blockBaseline(nn.Module):
     def __init__(self, nb_filts, first = False):
