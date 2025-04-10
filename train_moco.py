@@ -18,6 +18,7 @@ import aasist
 
 from builder import * 
 from datautils import * 
+from model import ContrastiveLearningEncoderMLP0
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -31,6 +32,9 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
 
+
+with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
+    config = json.loads(f_json.read())
 
 def load_model(model_name: str, config: dict):
     if model_name == "aasist_encoder":
@@ -184,7 +188,7 @@ parser.add_argument(
 # options for moco v2
 parser.add_argument("--mlp", action="store_true", help="use mlp head")
 parser.add_argument(
-    "--aug-plus", action="store_true", help="use moco v2 data augmentation"
+    "--aug-plus", action="store_true", help="use moco v2 data manipulations"
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
 
@@ -337,36 +341,51 @@ def main_worker(gpu, ngpus_per_node, args):
     )
     if args.aug_plus:
         # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-        augmentation = [
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.0)),
-            transforms.RandomApply(
-                [transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)],
-                p=0.8,  # not strengthened
-            ),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply(
-                [deeplearning.cross_image_ssl.moco.loader.GaussianBlur([0.1, 2.0])],
-                p=0.5,
-            ),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]
-    else:
-        # MoCo v1's aug: the same as InstDisc https://arxiv.org/abs/1805.01978
-        augmentation = [
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.0)),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
+        manipulations = [
+            "no_augmentation": None,
+            "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
+            "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
+            "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
+            "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
+            "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
+            "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
+            "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+            "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+            "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+            "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
+            "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+            "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+            "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
+            "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
+            "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
+            "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
+            "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
+            "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
+            "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
+            "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
+            "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
+            "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
+            "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
+            "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
+            "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
+            "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
+            "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
+            "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
+            "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
+            "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
+            "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
+            "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
+            "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
+            "resample_15000": ResampleAugmentation([15000], device="cuda"),
+            "resample_15500": ResampleAugmentation([15500], device="cuda"),
+            "resample_16500": ResampleAugmentation([16500], device="cuda"),
+            "resample_17000": ResampleAugmentation([17000], device="cuda"),
         ]
 
     train_dataset = datasets.ImageFolder(
         traindir,
         deeplearning.cross_image_ssl.moco.loader.TwoCropsTransform(
-            transforms.Compose(augmentation)
+            transforms.Compose(manipulations)
         ),
     )
 
