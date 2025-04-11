@@ -31,7 +31,7 @@ import torch.utils.data.distributed
 import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
-
+#-----------------------------------------------------------------------------------------------
 
 with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
     config = json.loads(f_json.read())
@@ -300,17 +300,16 @@ def main_worker(gpu, ngpus_per_node, args):
         # AllGather implementation (batch shuffle, queue update, etc.) in
         # this code only supports DistributedDataParallel.
         raise NotImplementedError("Only DistributedDataParallel is supported.")
-
+    
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-
     optimizer = torch.optim.Adam(
         model.parameters(),
         args.lr,
         momentum=args.momentum,
         weight_decay=args.weight_decay,
     )
-
+    
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -331,14 +330,41 @@ def main_worker(gpu, ngpus_per_node, args):
             )
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-
     cudnn.benchmark = True
-
+    
     # Data loading code
-    traindir = os.path.join(args.data, "train")
-    normalize = transforms.Normalize(
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-    )
+def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
+    d_label_trn, file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
+    print('no. of ASVspoof 2019 LA training trials', len(file_train))
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(list_IDs=file_train, labels=d_label_trn, base_dir=os.path.join(
+        database_path+'ASVspoof2019_LA_train/'), cut_length=cut_length, utt2spk=utt2spk)
+    asvspoof_2019_LA_train_dataloader = DataLoader(asvspoof_LA_train_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)  # added num_workders param to speed up.
+    
+    with torch.no_grad():
+        for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
+            # audio_input = torch.squeeze(audio_input)
+            audio_input = audio_input.squeeze(1)
+            if augmentations_on_cpu != None:
+                audio_input = augmentations_on_cpu(audio_input)
+            
+            audio_input = audio_input.to(device)
+
+            if augmentations != None:
+                if manipulation_on_real == False:
+                    # note that some manipulation will change the length of the audio, so we need to clip or pad it to the same length
+                    audio_length = audio_input.shape[-1]
+                    # only apply the augmentation on the spoofed audio, and pad or clip it to the same length
+                    audio_input[labels==0] = pad_or_clip_batch(augmentations(audio_input[labels==0]), audio_length, random_clip=False)
+
+                else:
+                    audio_input = augmentations(audio_input)  
+            # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
+            if audio_input.shape[-1] < cut_length:
+                audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
+            elif audio_input.shape[-1] > cut_length:
+                audio_input = audio_input[:, :cut_length]
+    return 
+    
     if args.aug_plus:
         # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
         manipulations = [
