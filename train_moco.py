@@ -332,11 +332,11 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
     cudnn.benchmark = True
     
-    # Data loading code
+# Data loading code
 def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
-    d_label_trn, file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
+    file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
     print('no. of ASVspoof 2019 LA training trials', len(file_train))
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(list_IDs=file_train, labels=d_label_trn, base_dir=os.path.join(
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(list_IDs=file_train, base_dir=os.path.join(
         database_path+'ASVspoof2019_LA_train/'), cut_length=cut_length, utt2spk=utt2spk)
     asvspoof_2019_LA_train_dataloader = DataLoader(asvspoof_LA_train_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)  # added num_workders param to speed up.
     
