@@ -84,7 +84,7 @@ def get_eval_metrics(score_save_path, plot_figure=True, given_threshold=None, pr
     return (eer_cm, auc, f1, acc, threshold, FAR, FRR)
 
 def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
-    # In asvspoof dataset, label = 1 means bonafide.
+    # In asvspoof dataset, label = 1 means bonafide
     model.eval()
     device = "cuda"
     # load asvspoof 2019 LA eval dataset
