@@ -332,7 +332,7 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
     cudnn.benchmark = True
     
-# Data loading code.
+# Data loading code
 def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
     file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
     print('no. of ASVspoof 2019 LA training trials', len(file_train))
