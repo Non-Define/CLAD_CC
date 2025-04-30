@@ -15,10 +15,11 @@ import shutil
 import time
 import warnings
 import aasist
+import json
 
 from builder import * 
 from datautils import * 
-from model import ContrastiveLearningEncoderMLP0
+from model import ContrastiveLearningEncoderMLP
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -54,7 +55,6 @@ model_names = sorted(
 )
 model_names.append("aasist_encoder")
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
-parser.add_argument("data", metavar="DIR", help="path to dataset")
 parser.add_argument(
     "-a",
     "--arch",
@@ -333,7 +333,6 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
     
 # Data loading code
-
 def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
     file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
     print('no. of ASVspoof 2019 LA training trials', len(file_train))
@@ -368,7 +367,7 @@ def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_o
     
     if args.aug_plus:
         # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-        manipulations = [
+        manipulations = {
             "no_augmentation": None,
             "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
             "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
@@ -407,7 +406,7 @@ def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_o
             "resample_15500": ResampleAugmentation([15500], device="cuda"),
             "resample_16500": ResampleAugmentation([16500], device="cuda"),
             "resample_17000": ResampleAugmentation([17000], device="cuda"),
-        ]
+        }
 
     train_dataset = datasets.ImageFolder(
         traindir,
