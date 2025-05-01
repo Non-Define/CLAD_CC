@@ -5,6 +5,7 @@
 
 import torch
 import torch.nn as nn
+from aasist import *
 
 
 class MoCo(nn.Module):
