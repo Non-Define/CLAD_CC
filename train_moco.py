@@ -14,12 +14,13 @@ import random
 import shutil
 import time
 import warnings
-import aasist
 import json
 
-from builder import * 
+from loader import TwoCropsTransform
 from datautils import * 
-from model import ContrastiveLearningEncoderMLP
+from model import MoCo_v2
+from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
+
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -30,30 +31,27 @@ import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.datasets as datasets
-import torchvision.models as models
 import torchvision.transforms as transforms
 #-----------------------------------------------------------------------------------------------
+torch.manual_seed(0)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+
+# Configurations
+gpu = 0  # GPU id to use
+torch.cuda.set_device(gpu)
 
 with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
     config = json.loads(f_json.read())
 
-def load_model(model_name: str, config: dict):
-    if model_name == "aasist_encoder":
-        with open(config['aasist_config_path'], "r") as f_json:        
-            aasist_config = json.loads(f_json.read())
-        aasist_model_config = aasist_config["model_config"]
-        aasist_encoder = aasist.AasistEncoder(aasist_model_config).to(device)
-        return aasist_encoder
-    else:
-        model = models.__dict__[model_name](pretrained=True)
-        return model
+def load_model(config: dict):
+    with open(config['aasist_config_path'], "r") as f_json:
+        aasist_config = json.loads(f_json.read())
+    aasist_model_config = aasist_config["model_config"]
+    model = AasistEncoder(aasist_model_config).to(device)
+    return model, aasist_model_config
 
-model_names = sorted(
-    name
-    for name in models.__dict__
-    if name.islower() and not name.startswith("__") and callable(models.__dict__[name])
-)
-model_names.append("aasist_encoder")
+model_names = ["aasist_encoder"]
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
 parser.add_argument(
     "-a",
@@ -259,15 +257,18 @@ def main_worker(gpu, ngpus_per_node, args):
             world_size=args.world_size,
             rank=args.rank,
         )
-    # create model
+        
+    # crate model
     print("=> creating model '{}'".format(args.arch))
-    model = deeplearning.cross_image_ssl.moco.builder.MoCo(
-        models.__dict__[args.arch],
-        args.moco_dim,
-        args.moco_k,
-        args.moco_m,
-        args.moco_t,
-        args.mlp,
+    model = MoCo_v2(
+        encoder_q=args.encoder_q, 
+        encoder_k=args.encoder_k,  
+        queue_feature_dim=args.queue_feature_dim,  
+        queue_size=args.queue_size,  
+        momentum=args.momentum,  
+        temperature=args.temperature,  
+        mlp=args.mlp,  
+        return_q=args.return_q  
     )
     print(model)
 
@@ -333,39 +334,42 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
     
 # Data loading code
-def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size = 1024, manipulation_on_real=True, cut_length = 64600):
+def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size=1024, manipulation_on_real=True, cut_length=64600):
     file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
     print('no. of ASVspoof 2019 LA training trials', len(file_train))
     asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(list_IDs=file_train, base_dir=os.path.join(
         database_path+'ASVspoof2019_LA_train/'), cut_length=cut_length, utt2spk=utt2spk)
     asvspoof_2019_LA_train_dataloader = DataLoader(asvspoof_LA_train_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)  # added num_workders param to speed up.
-    
+
     with torch.no_grad():
         for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
-            # audio_input = torch.squeeze(audio_input)
             audio_input = audio_input.squeeze(1)
+
+            # Apply augmentations if needed
             if augmentations_on_cpu != None:
                 audio_input = augmentations_on_cpu(audio_input)
             
             audio_input = audio_input.to(device)
 
+            # Apply the augmentations (either manipulations or directly if manipulation_on_real)
             if augmentations != None:
                 if manipulation_on_real == False:
-                    # note that some manipulation will change the length of the audio, so we need to clip or pad it to the same length
+                    # Apply augmentation only on spoofed audio and ensure it matches the expected length
                     audio_length = audio_input.shape[-1]
-                    # only apply the augmentation on the spoofed audio, and pad or clip it to the same length
-                    audio_input[labels==0] = pad_or_clip_batch(augmentations(audio_input[labels==0]), audio_length, random_clip=False)
-
+                    audio_input[labels == 0] = pad_or_clip_batch(augmentations(audio_input[labels == 0]), audio_length, random_clip=False)
                 else:
-                    audio_input = augmentations(audio_input)  
-            # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
+                    audio_input = augmentations(audio_input)
+
+            # Ensure the length of the audio is consistent with cut_length
             if audio_input.shape[-1] < cut_length:
-                audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
+                audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
             elif audio_input.shape[-1] > cut_length:
                 audio_input = audio_input[:, :cut_length]
-    return 
+
+    return audio_input
     
-    if args.aug_plus:
+    # Main part where you create dataset with manipulations and TwoCropsTransform
+    def create_train_dataset_with_two_crops(database_path, batch_size=1024, cut_length=64600):
         # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
         manipulations = {
             "no_augmentation": None,
@@ -408,12 +412,22 @@ def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_o
             "resample_17000": ResampleAugmentation([17000], device="cuda"),
         }
 
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        deeplearning.cross_image_ssl.moco.loader.TwoCropsTransform(
-            transforms.Compose(manipulations)
-        ),
-    )
+        # Create the augmentation pipeline using a Compose
+        augmentation_pipeline = transforms.Compose(list(manipulations.values())) if manipulations else None
+    
+        # Applying TwoCropsTransform to the augmentation pipeline
+        train_dataset = preprocessing_19_LA_train(
+            database_path,
+            augmentations=augmentation_pipeline,
+            augmentations_on_cpu=None,  # Adjust as needed for CPU augmentations
+            batch_size=batch_size,
+            manipulation_on_real=True,  # This flag can control the real manipulation application
+            cut_length=cut_length
+        )
+        # Apply TwoCropsTransform to the dataset
+        transform = loader.TwoCropsTransform(augmentation_pipeline)
+        train_dataset = train_dataset.map(transform)  # Ensure dataset supports this operation
+        return train_dataset
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -421,7 +435,7 @@ def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_o
         train_sampler = None
 
     train_loader = torch.utils.data.DataLoader(
-        train_dataset,
+        database_path,
         batch_size=args.batch_size,
         shuffle=(train_sampler is None),
         num_workers=args.workers,
