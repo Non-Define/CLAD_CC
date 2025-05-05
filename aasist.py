@@ -611,7 +611,7 @@ class AasistEncoder(nn.Module):
     def __init__(self, d_args):
         super().__init__()
 
-        self.d_args = d_args
+        d_args = d_args
         filts = d_args["filts"]
         gat_dims = d_args["gat_dims"]
         pool_ratios = d_args["pool_ratios"]
