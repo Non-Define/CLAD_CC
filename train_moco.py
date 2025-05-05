@@ -266,9 +266,9 @@ def main_worker(gpu, ngpus_per_node, args):
             world_size=args.world_size,
             rank=args.rank,
         )
+    # crate model    
     d_args = load_model(config)
     model = AasistEncoder(d_args=d_args).to(device)  
-    # crate model
     print("=> creating model '{}'".format(args.arch))
     model = MoCo_v2(
         encoder_q=aasist_encoder_q, 
