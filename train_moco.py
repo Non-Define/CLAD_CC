@@ -42,14 +42,23 @@ gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
 
 with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
-    config = json.loads(f_json.read())
+    config = json.load(f_json)
 
 def load_model(config: dict):
-    with open(config['aasist_config_path'], "r") as f_json:
-        aasist_config = json.loads(f_json.read())
-    aasist_model_config = aasist_config["model_config"]
-    model = AasistEncoder(aasist_model_config).to(device)
-    return model, aasist_model_config
+    aasist_config_path = config['aasist_config_path']
+    with open(aasist_config_path, "r") as f_json:
+        aasist_config = json.load(f_json)
+    model_config = aasist_config["model_config"]
+
+    d_args = {
+        "filts": model_config["filts"],
+        "gat_dims": model_config["gat_dims"],
+        "pool_ratios": model_config["pool_ratios"],
+        "temperatures": model_config["temperatures"],
+        "first_conv": model_config["first_conv"]
+    }
+    
+    return d_args
 
 model_names = ["aasist_encoder"]
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
@@ -257,18 +266,17 @@ def main_worker(gpu, ngpus_per_node, args):
             world_size=args.world_size,
             rank=args.rank,
         )
-        
+    d_args = load_model(config)
+    model = AasistEncoder(d_args=d_args).to(device)  
     # crate model
     print("=> creating model '{}'".format(args.arch))
     model = MoCo_v2(
-        encoder_q=args.encoder_q, 
-        encoder_k=args.encoder_k,  
-        queue_feature_dim=args.queue_feature_dim,  
-        queue_size=args.queue_size,  
-        momentum=args.momentum,  
-        temperature=args.temperature,  
-        mlp=args.mlp,  
-        return_q=args.return_q  
+        encoder_q=aasist_encoder_q, 
+        encoder_k=aasist_encoder_k,  
+        filts=model.filts,
+        gat_dims=model.gat_dims,
+        pool_ratios=model.pool_ratios,
+        temperature=args.temperature,   
     )
     print(model)
 
