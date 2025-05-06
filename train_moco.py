@@ -63,14 +63,6 @@ def load_model(config: dict):
 model_names = ["aasist_encoder"]
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
 parser.add_argument(
-    "-a",
-    "--arch",
-    metavar="ARCH",
-    default="aasist_encoder",
-    choices=model_names,
-    help="model architecture: " + " | ".join(model_names) + " (default: aasist_encoder)",
-)
-parser.add_argument(
     "-j",
     "--workers",
     default=32,
@@ -266,10 +258,15 @@ def main_worker(gpu, ngpus_per_node, args):
             world_size=args.world_size,
             rank=args.rank,
         )
+        
     # crate model    
     d_args = load_model(config)
     model = AasistEncoder(d_args=d_args).to(device)  
-    print("=> creating model '{}'".format(args.arch))
+    
+    aasist_encoder_q = AasistEncoder(d_args=d_args).to(device)
+    aasist_encoder_k = AasistEncoder(d_args=d_args).to(device)
+    aasist_encoder_k.load_state_dict(aasist_encoder_q.state_dict())
+    
     model = MoCo_v2(
         encoder_q=aasist_encoder_q, 
         encoder_k=aasist_encoder_k,  
