@@ -54,7 +54,6 @@ def load_model(config: dict):
 
 d_args = load_model(config)
 encoder = AasistEncoder(d_args=d_args)
-model = encoder
 
 model_names = ["aasist_encoder"]
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
@@ -187,50 +186,6 @@ parser.add_argument(
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
 
-
-def main():
-    args = parser.parse_args()
-
-    if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
-        warnings.warn(
-            "You have chosen to seed training. "
-            "This will turn on the CUDNN deterministic setting, "
-            "which can slow down your training considerably! "
-            "You may see unexpected behavior when restarting "
-            "from checkpoints."
-        )
-
-    if args.gpu is None:
-        args.gpu = 0  
-    main_worker(args)
-    
-def main_worker(args):
-    torch.cuda.set_device(args.gpu)
-    print(f"Use GPU: {args.gpu} for training")
-    model.cuda(args.gpu)  
-
-    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-    )
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
-            args.start_epoch = checkpoint["epoch"]
-            model.load_state_dict(checkpoint["state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer"])
-            print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
-
-    cudnn.benchmark = True
-    
 # Data loading code
 def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size=1024, manipulation_on_real=True, cut_length=64600):
     file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
@@ -267,49 +222,69 @@ def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_o
     return audio_input
     
 # Main part where you create dataset with manipulations and TwoCropsTransform
-def create_train_dataset_with_two_crops(database_path, batch_size=1024, cut_length=64600):
-    # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-    manipulations = {
-        "no_augmentation": None,
-        "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
-        "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
-        "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
-        "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
-        "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
-        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
-        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
-        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
-        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
-        "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
-        "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
-        "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
-        "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
-        "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
-        "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
-        "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
-        "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
-        "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
-        "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
-        "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
-        "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
-        "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
-        "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
-        "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
-        "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
-        "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
-        "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
-        "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
-        "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
-        "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
-        "resample_15000": ResampleAugmentation([15000], device="cuda"),
-        "resample_15500": ResampleAugmentation([15500], device="cuda"),
-        "resample_16500": ResampleAugmentation([16500], device="cuda"),
-        "resample_17000": ResampleAugmentation([17000], device="cuda"),
-    }
+# MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
+noise_dataset_path = config["noise_dataset_path"]
+manipulations = {
+    "no_augmentation": None,
+    "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
+    "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
+    "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
+    "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
+    "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
+    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
+    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
+    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+    "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
+    "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
+    "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
+    "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
+    "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
+    "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
+    "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
+    "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
+    "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
+    "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
+    "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
+    "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
+    "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
+    "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
+    "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
+    "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
+    "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
+    "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
+    "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
+    "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
+    "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
+    "resample_15000": ResampleAugmentation([15000], device="cuda"),
+    "resample_15500": ResampleAugmentation([15500], device="cuda"),
+    "resample_16500": ResampleAugmentation([16500], device="cuda"),
+    "resample_17000": ResampleAugmentation([17000], device="cuda"),
+}
 
+def main():
+    args = parser.parse_args()
+
+    if args.seed is not None:
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        cudnn.deterministic = True
+        warnings.warn(
+            "You have chosen to seed training. "
+            "This will turn on the CUDNN deterministic setting, "
+            "which can slow down your training considerably! "
+            "You may see unexpected behavior when restarting "
+            "from checkpoints."
+        )
+
+    if args.gpu is None:
+        args.gpu = 0  
+    main_worker(args)
+    
+def main_worker(args):
     # Create the augmentation pipeline using a Compose
     augmentation_pipeline = transforms.Compose(list(manipulations.values())) if manipulations else None
     transform = loader.TwoCropsTransform(augmentation_pipeline)
@@ -321,32 +296,57 @@ def create_train_dataset_with_two_crops(database_path, batch_size=1024, cut_leng
         manipulation_on_real=True,
         cut_length=cut_length
     )
-        
+
     view1_list = []
     view2_list = []
     for i in range(audio_data.shape[0]):
-        x1, x2 = transform(audio_data[i])
+   
+        x1, x2 = transform(audio_data[i])  
         view1_list.append(x1)
         view2_list.append(x2)
+
     x1 = torch.stack(view1_list)
     x2 = torch.stack(view2_list)
     return x1, x2
-    
+
     # create model
-    aasist = model
+    aasist = encoder
     input_feature_size = 64600    
     encoder_q = aasist
     encoder_k = copy.deepcopy(aasist)
     model = MoCo_v2(
-        encoder_q=encoder_q,
-        encoder_k=encoder_k,
+        encoder_q=x1,
+        encoder_k=x2,
         queue_feature_dim=last_hidden 
     )
     print(model)
     
+    torch.cuda.set_device(args.gpu)
+    print(f"Use GPU: {args.gpu} for training")
+    model.cuda(args.gpu)  
+
+    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
+            args.start_epoch = checkpoint["epoch"]
+            model.load_state_dict(checkpoint["state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer"])
+            print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
+
+    cudnn.benchmark = True
+
     x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=1024)
     out_q, out_k = model(x1.to(device), x2.to(device))
-    
+
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
@@ -383,8 +383,7 @@ def create_train_dataset_with_two_crops(database_path, batch_size=1024, cut_leng
                 is_best=False,
                 filename="checkpoint_{:04d}.pth.tar".format(epoch),
             )
-
-
+ 
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
