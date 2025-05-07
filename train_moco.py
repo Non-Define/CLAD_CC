@@ -15,6 +15,7 @@ import shutil
 import time
 import warnings
 import json
+import copy
 
 from loader import TwoCropsTransform
 from datautils import * 
@@ -48,17 +49,12 @@ def load_model(config: dict):
     aasist_config_path = config['aasist_config_path']
     with open(aasist_config_path, "r") as f_json:
         aasist_config = json.load(f_json)
-    model_config = aasist_config["model_config"]
-
-    d_args = {
-        "filts": model_config["filts"],
-        "gat_dims": model_config["gat_dims"],
-        "pool_ratios": model_config["pool_ratios"],
-        "temperatures": model_config["temperatures"],
-        "first_conv": model_config["first_conv"]
-    }
     
-    return d_args
+    return aasist_config["model_config"]
+
+d_args = load_model(config)
+encoder = AasistEncoder(d_args=d_args)
+model = encoder
 
 model_names = ["aasist_encoder"]
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
@@ -207,135 +203,32 @@ def main():
             "from checkpoints."
         )
 
-    if args.gpu is not None:
-        warnings.warn(
-            "You have chosen a specific GPU. This will completely "
-            "disable data parallelism."
-        )
-
-    if args.dist_url == "env://" and args.world_size == -1:
-        args.world_size = int(os.environ["WORLD_SIZE"])
-
-    args.distributed = args.world_size > 1 or args.multiprocessing_distributed
-
-    ngpus_per_node = torch.cuda.device_count()
-    if args.multiprocessing_distributed:
-        # Since we have ngpus_per_node processes per node, the total world_size
-        # needs to be adjusted accordingly
-        args.world_size = ngpus_per_node * args.world_size
-        # Use torch.multiprocessing.spawn to launch distributed processes: the
-        # main_worker process function
-        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
-    else:
-        # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
-
-
-def main_worker(gpu, ngpus_per_node, args):
-    args.gpu = gpu
-
-    # suppress printing if not master
-    if args.multiprocessing_distributed and args.gpu != 0:
-
-        def print_pass(*args):
-            pass
-
-        builtins.print = print_pass
-
-    if args.gpu is not None:
-        print("Use GPU: {} for training".format(args.gpu))
-
-    if args.distributed:
-        if args.dist_url == "env://" and args.rank == -1:
-            args.rank = int(os.environ["RANK"])
-        if args.multiprocessing_distributed:
-            # For multiprocessing distributed training, rank needs to be the
-            # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + gpu
-        dist.init_process_group(
-            backend=args.dist_backend,
-            init_method=args.dist_url,
-            world_size=args.world_size,
-            rank=args.rank,
-        )
-        
-    # crate model    
-    d_args = load_model(config)
-    model = AasistEncoder(d_args=d_args).to(device)  
+    if args.gpu is None:
+        args.gpu = 0  
+    main_worker(args)
     
-    aasist_encoder_q = AasistEncoder(d_args=d_args).to(device)
-    aasist_encoder_k = AasistEncoder(d_args=d_args).to(device)
-    aasist_encoder_k.load_state_dict(aasist_encoder_q.state_dict())
-    
-    model = MoCo_v2(
-        encoder_q=aasist_encoder_q, 
-        encoder_k=aasist_encoder_k,  
-        filts=model.filts,
-        gat_dims=model.gat_dims,
-        pool_ratios=model.pool_ratios,
-        temperature=args.temperature,   
-    )
-    print(model)
+def main_worker(args):
+    torch.cuda.set_device(args.gpu)
+    print(f"Use GPU: {args.gpu} for training")
+    model.cuda(args.gpu)  
 
-    if args.distributed:
-        # For multiprocessing distributed, DistributedDataParallel constructor
-        # should always set the single device scope, otherwise,
-        # DistributedDataParallel will use all available devices.
-        if args.gpu is not None:
-            torch.cuda.set_device(args.gpu)
-            model.cuda(args.gpu)
-            # When using a single GPU per process and per
-            # DistributedDataParallel, we need to divide the batch size
-            # ourselves based on the total number of GPUs we have
-            args.batch_size = int(args.batch_size / ngpus_per_node)
-            args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
-            model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.gpu]
-            )
-        else:
-            model.cuda()
-            # DistributedDataParallel will divide and allocate batch_size to all
-            # available GPUs if device_ids are not set
-            model = torch.nn.parallel.DistributedDataParallel(model)
-    elif args.gpu is not None:
-        torch.cuda.set_device(args.gpu)
-        model = model.cuda(args.gpu)
-        # comment out the following line for debugging
-        raise NotImplementedError("Only DistributedDataParallel is supported.")
-    else:
-        # AllGather implementation (batch shuffle, queue update, etc.) in
-        # this code only supports DistributedDataParallel.
-        raise NotImplementedError("Only DistributedDataParallel is supported.")
-    
-    # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
     optimizer = torch.optim.Adam(
         model.parameters(),
-        args.lr,
-        momentum=args.momentum,
+        lr=args.lr,
         weight_decay=args.weight_decay,
     )
-    
-    # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
-            if args.gpu is None:
-                checkpoint = torch.load(args.resume)
-            else:
-                # Map model to be loaded to specified single gpu.
-                loc = "cuda:{}".format(args.gpu)
-                checkpoint = torch.load(args.resume, map_location=loc)
+            checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
             args.start_epoch = checkpoint["epoch"]
             model.load_state_dict(checkpoint["state_dict"])
             optimizer.load_state_dict(checkpoint["optimizer"])
-            print(
-                "=> loaded checkpoint '{}' (epoch {})".format(
-                    args.resume, checkpoint["epoch"]
-                )
-            )
+            print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
+
     cudnn.benchmark = True
     
 # Data loading code
@@ -373,67 +266,87 @@ def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_o
 
     return audio_input
     
-    # Main part where you create dataset with manipulations and TwoCropsTransform
-    def create_train_dataset_with_two_crops(database_path, batch_size=1024, cut_length=64600):
-        # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-        manipulations = {
-            "no_augmentation": None,
-            "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
-            "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
-            "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
-            "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
-            "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-            "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
-            "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-            "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
-            "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
-            "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
-            "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-            "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
-            "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
-            "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
-            "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
-            "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
-            "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
-            "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
-            "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
-            "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
-            "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
-            "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
-            "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
-            "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
-            "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
-            "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
-            "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
-            "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
-            "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
-            "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
-            "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
-            "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
-            "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
-            "resample_15000": ResampleAugmentation([15000], device="cuda"),
-            "resample_15500": ResampleAugmentation([15500], device="cuda"),
-            "resample_16500": ResampleAugmentation([16500], device="cuda"),
-            "resample_17000": ResampleAugmentation([17000], device="cuda"),
-        }
+# Main part where you create dataset with manipulations and TwoCropsTransform
+def create_train_dataset_with_two_crops(database_path, batch_size=1024, cut_length=64600):
+    # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
+    manipulations = {
+        "no_augmentation": None,
+        "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
+        "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
+        "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
+        "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
+        "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
+        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
+        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
+        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+        "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
+        "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
+        "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
+        "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
+        "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
+        "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
+        "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
+        "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
+        "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
+        "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
+        "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
+        "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
+        "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
+        "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
+        "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
+        "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
+        "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
+        "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
+        "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
+        "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
+        "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
+        "resample_15000": ResampleAugmentation([15000], device="cuda"),
+        "resample_15500": ResampleAugmentation([15500], device="cuda"),
+        "resample_16500": ResampleAugmentation([16500], device="cuda"),
+        "resample_17000": ResampleAugmentation([17000], device="cuda"),
+    }
 
-        # Create the augmentation pipeline using a Compose
-        augmentation_pipeline = transforms.Compose(list(manipulations.values())) if manipulations else None
+    # Create the augmentation pipeline using a Compose
+    augmentation_pipeline = transforms.Compose(list(manipulations.values())) if manipulations else None
+    transform = loader.TwoCropsTransform(augmentation_pipeline)
+    audio_data = preprocessing_19_LA_train(
+        database_path,
+        augmentations=None,  
+        augmentations_on_cpu=None,
+        batch_size=batch_size,
+        manipulation_on_real=True,
+        cut_length=cut_length
+    )
+        
+    view1_list = []
+    view2_list = []
+    for i in range(audio_data.shape[0]):
+        x1, x2 = transform(audio_data[i])
+        view1_list.append(x1)
+        view2_list.append(x2)
+    x1 = torch.stack(view1_list)
+    x2 = torch.stack(view2_list)
+    return x1, x2
     
-        # Applying TwoCropsTransform to the augmentation pipeline
-        train_dataset = preprocessing_19_LA_train(
-            database_path,
-            augmentations=augmentation_pipeline,
-            augmentations_on_cpu=None,  # Adjust as needed for CPU augmentations
-            batch_size=batch_size,
-            manipulation_on_real=True,  # This flag can control the real manipulation application
-            cut_length=cut_length
-        )
-        # Apply TwoCropsTransform to the dataset
-        transform = loader.TwoCropsTransform(augmentation_pipeline)
-        train_dataset = train_dataset.map(transform)  # Ensure dataset supports this operation
-        return train_dataset
-
+    # create model
+    aasist = model
+    input_feature_size = 64600    
+    encoder_q = aasist
+    encoder_k = copy.deepcopy(aasist)
+    model = MoCo_v2(
+        encoder_q=encoder_q,
+        encoder_k=encoder_k,
+        queue_feature_dim=last_hidden 
+    )
+    print(model)
+    
+    x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=1024)
+    out_q, out_k = model(x1.to(device), x2.to(device))
+    
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
