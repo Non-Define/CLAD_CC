@@ -5,8 +5,6 @@
 
 import random
 
-from PIL import ImageFilter
-
 
 class TwoCropsTransform:
     """Take two random crops of one image as the query and key."""
