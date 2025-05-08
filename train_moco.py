@@ -19,11 +19,12 @@ import copy
 from tqdm import tqdm
 
 from loader import TwoCropsTransform
-from datautils import * 
+from datautils import TwoCropsTransform, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
 from model import MoCo_v2
 from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
 
 import torch
+import torchaudio
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -259,7 +260,7 @@ asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
     utt2spk=utt2spk
 )
 
-asvspoof_2019_LA_eval_dataloader = DataLoader(
+asvspoof_2019_LA_train_dataloader = DataLoader(
     asvspoof_LA_train_dataset,
     batch_size=batch_size,
     shuffle=False,
@@ -314,31 +315,35 @@ manipulations = {
 with open(score_save_path, 'w') as file:
     pass
 
-with torch.no_grad():
-    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_eval_dataloader)):
-        score_list = []  
-        audio_input = audio_input.squeeze(1)
+for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
+    score_list = []  
+    audio_input = audio_input.squeeze(1)
 
-        if augmentations_on_cpu is not None:
-            audio_input = augmentations_on_cpu(audio_input)
+    if augmentations_on_cpu is not None:
+        audio_input = augmentations_on_cpu(audio_input)
 
-        audio_input = audio_input.to(device)
+    audio_input = audio_input.to(device)
 
-        if augmentations is not None:
-            if manipulation_on_real == False:
-                audio_length = audio_input.shape[-1]
-                audio_input[labels == 0] = pad_or_clip_batch(augmentations(audio_input[labels == 0]), audio_length, random_clip=False)
-            else:
-                audio_input = augmentations(audio_input)
+    if augmentations is not None:
+        if manipulation_on_real == False:
+            audio_length = audio_input.shape[-1]
+            audio_input[labels == 0] = pad_or_clip_batch(
+                augmentations(audio_input[labels == 0]),
+                audio_length,
+                random_clip=False
+            )
+        else:
+            audio_input = augmentations(audio_input)
 
-        if audio_input.shape[-1] < cut_length:
-            audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
-        elif audio_input.shape[-1] > cut_length:
-            audio_input = audio_input[:, :cut_length]
-        for manipulation_name, manipulation in manipulations.items():
-                    if manipulation is not None:
-                        audio_input = manipulation(audio_input)
-        transform = TwoCropsTransform(augmentation_pipeline) 
+    if audio_input.shape[-1] < cut_length:
+        audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
+    elif audio_input.shape[-1] > cut_length:
+        audio_input = audio_input[:, :cut_length]
+
+    for manipulation_name, manipulation in manipulations.items():
+        if manipulation is not None:
+            audio_input = manipulation(audio_input.to(device))
+        transform = TwoCropsTransform(base_transform)
         
         # Generate q and k using the TwoCropsTransform
         view1_list = []
@@ -378,57 +383,8 @@ with torch.no_grad():
 
 print('Scores saved to {}'.format(score_save_path))
 get_eval_metrics(score_save_path=score_save_path, plot_figure=False)
-    
-# Main part where you create dataset with manipulations and TwoCropsTransform
-# MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-noise_dataset_path = config["noise_dataset_path"]
-manipulations = {
-    "no_augmentation": None,
-    "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
-    "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
-    "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
-    "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
-    "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
-    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
-    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
-    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
-    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
-    "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
-    "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
-    "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
-    "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
-    "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
-    "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
-    "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
-    "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
-    "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
-    "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
-    "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
-    "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
-    "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
-    "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
-    "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
-    "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
-    "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
-    "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
-    "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
-    "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
-    "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
-    "resample_15000": ResampleAugmentation([15000], device="cuda"),
-    "resample_15500": ResampleAugmentation([15500], device="cuda"),
-    "resample_16500": ResampleAugmentation([16500], device="cuda"),
-    "resample_17000": ResampleAugmentation([17000], device="cuda"),
-}
-    
-for manipulation_name, manipulation in manipulations.items():
-            if manipulation is not None:
-                audio_input = manipulation(audio_input)
-transform = TwoCropsTransform(augmentation_pipeline)
 
-    
+   
 torch.cuda.set_device(args.gpu)
 print(f"Use GPU: {args.gpu} for training")
 model.cuda(args.gpu)  
