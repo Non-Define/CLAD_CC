@@ -143,6 +143,7 @@ def evaluation_19_LA_eval(model, score_save_path, model_name, database_path, aug
             if model_name == "ResTSSDNetModel":
                 audio_input = audio_input.unsqueeze(1)  # pretrained ResTSSDNetModel takes 3D input(batch, channel, waveform), so we need to add a dimension for channels
             batch_out = model(audio_input)
+            
             if model_name == "AASIST":
                 batch_out = batch_out[1]  # the AASIST model output last_hidden_state and score and we only need the score
             # The ResTSSDNetModel output two scores, but the order seems to be reversed. So we need to reverse it back.
