@@ -16,6 +16,7 @@ import time
 import warnings
 import json
 import copy
+from tqdm import tqdm
 
 from loader import TwoCropsTransform
 from datautils import * 
@@ -31,6 +32,7 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
+from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 #-----------------------------------------------------------------------------------------------
@@ -186,41 +188,85 @@ parser.add_argument(
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
 
-# Data loading code
-def preprocessing_19_LA_train(database_path, augmentations=None, augmentations_on_cpu=None, batch_size=1024, manipulation_on_real=True, cut_length=64600):
-    file_train, utt2spk = genSpoof_list(dir_meta=database_path+"ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trl.txt", is_train=False, is_eval=False)
-    print('no. of ASVspoof 2019 LA training trials', len(file_train))
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(list_IDs=file_train, base_dir=os.path.join(
-        database_path+'ASVspoof2019_LA_train/'), cut_length=cut_length, utt2spk=utt2spk)
-    asvspoof_2019_LA_train_dataloader = DataLoader(asvspoof_LA_train_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=8, pin_memory=True)  # added num_workders param to speed up.
+def main():
+    args = parser.parse_args()
 
-    with torch.no_grad():
-        for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
-            audio_input = audio_input.squeeze(1)
+    if args.seed is not None:
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        cudnn.deterministic = True
+        warnings.warn(
+            "You have chosen to seed training. "
+            "This will turn on the CUDNN deterministic setting, "
+            "which can slow down your training considerably! "
+            "You may see unexpected behavior when restarting "
+            "from checkpoints."
+        )
 
-            # Apply augmentations if needed
-            if augmentations_on_cpu != None:
-                audio_input = augmentations_on_cpu(audio_input)
-            
-            audio_input = audio_input.to(device)
+    if args.gpu is None:
+        args.gpu = 0  
+    else:
+        main_worker(args, args.gpu)
 
-            # Apply the augmentations (either manipulations or directly if manipulation_on_real)
-            if augmentations != None:
-                if manipulation_on_real == False:
-                    # Apply augmentation only on spoofed audio and ensure it matches the expected length
-                    audio_length = audio_input.shape[-1]
-                    audio_input[labels == 0] = pad_or_clip_batch(augmentations(audio_input[labels == 0]), audio_length, random_clip=False)
-                else:
-                    audio_input = augmentations(audio_input)
+def main_worker(gpu, ngpus_per_node, args):
+    args.gpu = gpu
 
-            # Ensure the length of the audio is consistent with cut_length
-            if audio_input.shape[-1] < cut_length:
-                audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
-            elif audio_input.shape[-1] > cut_length:
-                audio_input = audio_input[:, :cut_length]
+    # suppress printing if not master
+    if args.multiprocessing_distributed and args.gpu != 0:
 
-    return audio_input
-    
+        def print_pass(*args) -> None:
+            pass
+
+        builtins.print = print_pass
+
+    if args.gpu is not None:
+        print("Use GPU: {} for training".format(args.gpu))
+
+    if args.distributed:
+        if args.dist_url == "env://" and args.rank == -1:
+            args.rank = int(os.environ["RANK"])
+        if args.multiprocessing_distributed:
+            # For multiprocessing distributed training, rank needs to be the
+            # global rank among all the processes
+            args.rank = args.rank * ngpus_per_node + gpu
+        dist.init_process_group(
+            backend=args.dist_backend,
+            init_method=args.dist_url,
+            world_size=args.world_size,
+            rank=args.rank,
+        )
+
+# data loading code
+database_path = config["database_path"]
+cut_length = 64600
+batch_size = 24
+score_save_path = "./results/scores.txt"
+augmentations_on_cpu = None
+augmentations = None
+
+d_label_trn, file_eval, utt2spk = genSpoof_list(
+    dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
+    is_train=False,
+    is_eval=False
+)
+print('no. of ASVspoof 2019 LA evaluating trials', len(file_eval))
+
+asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
+    list_IDs=file_eval,
+    labels=d_label_trn,
+    base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+    cut_length=cut_length,
+    utt2spk=utt2spk
+)
+
+asvspoof_2019_LA_eval_dataloader = DataLoader(
+    asvspoof_LA_train_dataset,
+    batch_size=batch_size,
+    shuffle=False,
+    drop_last=False,
+    num_workers=8,
+    pin_memory=True
+)
 # Main part where you create dataset with manipulations and TwoCropsTransform
 # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
 noise_dataset_path = config["noise_dataset_path"]
@@ -265,124 +311,185 @@ manipulations = {
     "resample_17000": ResampleAugmentation([17000], device="cuda"),
 }
 
-def main():
-    args = parser.parse_args()
+with open(score_save_path, 'w') as file:
+    pass
 
-    if args.seed is not None:
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        cudnn.deterministic = True
-        warnings.warn(
-            "You have chosen to seed training. "
-            "This will turn on the CUDNN deterministic setting, "
-            "which can slow down your training considerably! "
-            "You may see unexpected behavior when restarting "
-            "from checkpoints."
+with torch.no_grad():
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_eval_dataloader)):
+        score_list = []  
+        audio_input = audio_input.squeeze(1)
+
+        if augmentations_on_cpu is not None:
+            audio_input = augmentations_on_cpu(audio_input)
+
+        audio_input = audio_input.to(device)
+
+        if augmentations is not None:
+            if manipulation_on_real == False:
+                audio_length = audio_input.shape[-1]
+                audio_input[labels == 0] = pad_or_clip_batch(augmentations(audio_input[labels == 0]), audio_length, random_clip=False)
+            else:
+                audio_input = augmentations(audio_input)
+
+        if audio_input.shape[-1] < cut_length:
+            audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
+        elif audio_input.shape[-1] > cut_length:
+            audio_input = audio_input[:, :cut_length]
+        for manipulation_name, manipulation in manipulations.items():
+                    if manipulation is not None:
+                        audio_input = manipulation(audio_input)
+        transform = TwoCropsTransform(augmentation_pipeline) 
+        
+        # Generate q and k using the TwoCropsTransform
+        view1_list = []
+        view2_list = []
+        for i in range(audio_input.shape[0]):
+            x1, x2 = transform(audio_input[i])  # Applying the transformation to audio data
+            view1_list.append(x1)
+            view2_list.append(x2)
+
+        # Stack the results into tensors
+        encoder_q_input = torch.stack(view1_list)
+        encoder_k_input = torch.stack(view2_list)
+
+        # Define the encoder and its architecture (e.g., `aasist`)
+        aasist = encoder  # Ensure encoder is correctly defined
+        encoder_q = encoder_q_input
+        encoder_k = encoder_k_input
+
+        # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
+        model = MoCo_v2(
+            encoder_q=encoder_q,
+            encoder_k=encoder_k,
+            queue_feature_dim=last_hidden
         )
+        print(model)
+        
+        batch_out = model(audio_input)
+        batch_out = batch_out[1]  
 
-    if args.gpu is None:
-        args.gpu = 0  
-    main_worker(args)
+        batch_score = (batch_out[:, 0]).data.cpu().numpy().ravel()
+        label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
+        score_list.extend(batch_score.tolist())
+
+        with open(score_save_path, 'a+') as fh:
+            for label, cm_score in zip(label_list, score_list):
+                fh.write('- - {} {}\n'.format(label, cm_score))
+
+print('Scores saved to {}'.format(score_save_path))
+get_eval_metrics(score_save_path=score_save_path, plot_figure=False)
     
-def main_worker(args):
-    # Create the augmentation pipeline using a Compose
-    augmentation_pipeline = transforms.Compose(list(manipulations.values())) if manipulations else None
-    transform = loader.TwoCropsTransform(augmentation_pipeline)
-    audio_data = preprocessing_19_LA_train(
-        database_path,
-        augmentations=None,  
-        augmentations_on_cpu=None,
-        batch_size=batch_size,
-        manipulation_on_real=True,
-        cut_length=cut_length
-    )
-
-    view1_list = []
-    view2_list = []
-    for i in range(audio_data.shape[0]):
-   
-        x1, x2 = transform(audio_data[i])  
-        view1_list.append(x1)
-        view2_list.append(x2)
-
-    x1 = torch.stack(view1_list)
-    x2 = torch.stack(view2_list)
-    return x1, x2
-
-    # create model
-    aasist = encoder
-    input_feature_size = 64600    
-    encoder_q = aasist
-    encoder_k = copy.deepcopy(aasist)
-    model = MoCo_v2(
-        encoder_q=x1,
-        encoder_k=x2,
-        queue_feature_dim=last_hidden 
-    )
-    print(model)
+# Main part where you create dataset with manipulations and TwoCropsTransform
+# MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
+noise_dataset_path = config["noise_dataset_path"]
+manipulations = {
+    "no_augmentation": None,
+    "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
+    "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
+    "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
+    "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
+    "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
+    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
+    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
+    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+    "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
+    "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
+    "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
+    "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
+    "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
+    "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
+    "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
+    "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
+    "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
+    "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
+    "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
+    "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
+    "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
+    "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
+    "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
+    "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
+    "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
+    "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
+    "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
+    "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
+    "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
+    "resample_15000": ResampleAugmentation([15000], device="cuda"),
+    "resample_15500": ResampleAugmentation([15500], device="cuda"),
+    "resample_16500": ResampleAugmentation([16500], device="cuda"),
+    "resample_17000": ResampleAugmentation([17000], device="cuda"),
+}
     
-    torch.cuda.set_device(args.gpu)
-    print(f"Use GPU: {args.gpu} for training")
-    model.cuda(args.gpu)  
+for manipulation_name, manipulation in manipulations.items():
+            if manipulation is not None:
+                audio_input = manipulation(audio_input)
+transform = TwoCropsTransform(augmentation_pipeline)
 
-    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-    )
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
-            args.start_epoch = checkpoint["epoch"]
-            model.load_state_dict(checkpoint["state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer"])
-            print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
+    
+torch.cuda.set_device(args.gpu)
+print(f"Use GPU: {args.gpu} for training")
+model.cuda(args.gpu)  
 
-    cudnn.benchmark = True
-
-    x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=1024)
-    out_q, out_k = model(x1.to(device), x2.to(device))
-
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+optimizer = torch.optim.Adam(
+    model.parameters(),
+    lr=args.lr,
+    weight_decay=args.weight_decay,
+)
+if args.resume:
+    if os.path.isfile(args.resume):
+        print("=> loading checkpoint '{}'".format(args.resume))
+        checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
+        args.start_epoch = checkpoint["epoch"]
+        model.load_state_dict(checkpoint["state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
     else:
-        train_sampler = None
+        print("=> no checkpoint found at '{}'".format(args.resume))
 
-    train_loader = torch.utils.data.DataLoader(
-        database_path,
-        batch_size=args.batch_size,
-        shuffle=(train_sampler is None),
-        num_workers=args.workers,
-        pin_memory=True,
-        sampler=train_sampler,
-        drop_last=True,
-    )
+cudnn.benchmark = True
 
-    for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, epoch, args)
+x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=1024)
+out_q, out_k = model(x1.to(device), x2.to(device))
 
-        # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+if args.distributed:
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+else:
+    train_sampler = None
 
-        if not args.multiprocessing_distributed or (
-            args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
-        ):
-            save_checkpoint(
-                {
-                    "epoch": epoch + 1,
-                    "arch": args.arch,
-                    "state_dict": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                },
-                is_best=False,
-                filename="checkpoint_{:04d}.pth.tar".format(epoch),
-            )
+train_loader = torch.utils.data.DataLoader(
+    batch_size=args.batch_size,
+    shuffle=(train_sampler is None),
+    num_workers=args.workers,
+    pin_memory=True,
+    sampler=train_sampler,
+    drop_last=True,
+)
+
+for epoch in range(args.start_epoch, args.epochs):
+    if args.distributed:
+        train_sampler.set_epoch(epoch)
+    adjust_learning_rate(optimizer, epoch, args)
+
+    # train for one epoch
+    train(train_loader, model, criterion, optimizer, epoch, args)
+
+    if not args.multiprocessing_distributed or (
+        args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
+    ):
+        save_checkpoint(
+            {
+                "epoch": epoch + 1,
+                "arch": args.arch,
+                "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+            },
+            is_best=False,
+            filename="checkpoint_{:04d}.pth.tar".format(epoch),
+        )
  
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter("Time", ":6.3f")
