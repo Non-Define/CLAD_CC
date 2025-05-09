@@ -219,7 +219,6 @@ class AddEnvironmentalNoise(nn.Module):
         noise_tensor_power = torch.mean(noise_tensor ** 2, dim=-1, keepdim=True)
         return noise_tensor, noise_tensor_power
 
-
     def add_environmental_noise(self, audio, max_snr_db, min_snr_db):
         snr_db = random.uniform(min_snr_db, max_snr_db)
         snr = 10 ** (snr_db / 10)
@@ -235,8 +234,11 @@ class AddEnvironmentalNoise(nn.Module):
             audio = torch.cat([tmp_zeros, audio], dim=-1)
             noise = torch.cat([noise, tmp_zeros], dim=-1)
         # Add the noise to the audio
+        print(f"Audio shape: {audio.shape}")
+        print(f"Noise shape: {noise.shape}")
         noisy_audio = audio + noise
         return noisy_audio
+    
     def forward(self, audio, max_snr_db=None, min_snr_db=None):
         if max_snr_db == None:
             max_snr_db = self.max_snr_db
