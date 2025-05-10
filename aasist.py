@@ -665,6 +665,7 @@ class AasistEncoder(nn.Module):
         self.pool_hT2 = GraphPool(pool_ratios[2], gat_dims[1], 0.3)
 
         self.out_layer = nn.Linear(5 * gat_dims[1], 2)
+        self.last_hidden = 5 * gat_dims[1]
 
     def forward(self, x, Freq_aug=False):
 
