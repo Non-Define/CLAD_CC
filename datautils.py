@@ -266,6 +266,7 @@ class ResampleAugmentation(nn.Module):
     def forward(self, audio):
         # choose a random resample transform from self.resample_transforms
         resample_transform = random.choice(self.resample_transforms)
+        audio = audio.to(self.device)
         return resample_transform(audio)
     
 class SmoothingAugmentation(nn.Module):
