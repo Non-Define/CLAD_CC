@@ -243,7 +243,7 @@ cut_length = 64600
 batch_size = 24
 score_save_path = "./results/scores.txt"
 augmentations_on_cpu = None
-augmentations = None
+manipulations = None
 
 d_label_trn, file_eval, utt2spk = genSpoof_list(
     dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
@@ -309,9 +309,19 @@ manipulations = {
     "resample_15000": ResampleAugmentation([15000], device="cuda"),
     "resample_15500": ResampleAugmentation([15500], device="cuda"),
     "resample_16500": ResampleAugmentation([16500], device="cuda"),
-    "resample_17000": ResampleAugmentation([17000], device="cuda"),
+    "resample_17000": ResampleAugmentation([17000], device="cuda"), # device="cuda"
 }
 
+class ComposeWithNone:
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, x):
+        for t in self.transforms:
+            if t is not None:
+                x = t(x)
+        return x
+    
 with open(score_save_path, 'w') as file:
     pass
 
@@ -324,62 +334,44 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
 
     audio_input = audio_input.to(device)
 
-    if augmentations is not None:
-        if manipulation_on_real == False:
-            audio_length = audio_input.shape[-1]
-            audio_input[labels == 0] = pad_or_clip_batch(
-                augmentations(audio_input[labels == 0]),
-                audio_length,
-                random_clip=False
-            )
-        else:
-            audio_input = augmentations(audio_input)
-
+    for manipulation_name, manipulation in manipulations.items():
+        if manipulation is not None:
+            audio_input = manipulation(audio_input.to(device))
+            
     if audio_input.shape[-1] < cut_length:
         audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
     elif audio_input.shape[-1] > cut_length:
         audio_input = audio_input[:, :cut_length]
+    audio_input = audio_input.to(device)
+    print("audio_length", audio_input.shape)
 
-    for manipulation_name, manipulation in manipulations.items():
-        if manipulation is not None:
-            audio_input = manipulation(audio_input.to(device))
-        transform = TwoCropsTransform(base_transform)
-        
-        # Generate q and k using the TwoCropsTransform
-        view1_list = []
-        view2_list = []
-        for i in range(audio_input.shape[0]):
-            x1, x2 = transform(audio_input[i])  # Applying the transformation to audio data
-            view1_list.append(x1)
-            view2_list.append(x2)
+    base_transform = ComposeWithNone(list(manipulations.values()))
+    two_crop_transform = TwoCropsTransform(base_transform=base_transform)
+    q, k = two_crop_transform(audio_input)
 
-        # Stack the results into tensors
-        encoder_q_input = torch.stack(view1_list)
-        encoder_k_input = torch.stack(view2_list)
+    # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
+    model = MoCo_v2(
+        encoder_q=encoder,
+        encoder_k=encoder,
+        queue_feature_dim=encoder.last_hidden
+    ).to(device)
+    print(model)
+    
+    q = q.to(device)
+    k = k.to(device)
+    q_emb = model.encoder_q(q)
+    k_emb = model.encoder_k(k)
+    
+    batch_out = model(audio_input)
+    batch_out = batch_out[1]  
 
-        # Define the encoder and its architecture (e.g., `aasist`)
-        aasist = encoder  # Ensure encoder is correctly defined
-        encoder_q = encoder_q_input
-        encoder_k = encoder_k_input
+    batch_score = (batch_out[:, 0]).data.cpu().numpy().ravel()
+    label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
+    score_list.extend(batch_score.tolist())
 
-        # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
-        model = MoCo_v2(
-            encoder_q=encoder_q,
-            encoder_k=encoder_k,
-            queue_feature_dim=last_hidden
-        )
-        print(model)
-        
-        batch_out = model(audio_input)
-        batch_out = batch_out[1]  
-
-        batch_score = (batch_out[:, 0]).data.cpu().numpy().ravel()
-        label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
-        score_list.extend(batch_score.tolist())
-
-        with open(score_save_path, 'a+') as fh:
-            for label, cm_score in zip(label_list, score_list):
-                fh.write('- - {} {}\n'.format(label, cm_score))
+    with open(score_save_path, 'a+') as fh:
+        for label, cm_score in zip(label_list, score_list):
+            fh.write('- - {} {}\n'.format(label, cm_score))
 
 print('Scores saved to {}'.format(score_save_path))
 get_eval_metrics(score_save_path=score_save_path, plot_figure=False)
