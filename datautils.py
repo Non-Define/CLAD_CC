@@ -5,15 +5,15 @@ This code was referenced from https://github.com/CLAD23/CLAD.
 
 import os
 import random
+import librosa 
+import timestretch
+import numpy as np
+
 import torch
 import torchaudio
-import timestretch
 import torch.nn as nn
-import numpy as np
 from torch.utils.data import Dataset
-import librosa  
-
-
+ 
 
 class TwoCropsTransform:
     """Take two random crops of one image as the query and key."""
@@ -132,7 +132,7 @@ class PitchShift(nn.Module):
         y_shift = librosa.effects.pitch_shift(audio_np, bins_per_octave=self.bins_per_octave,
                                               sr=self.sample_rate, n_steps=shift_ratio)
         # NumPy → Tensor 
-        audio_shifted_tensor = torch.tensor(y_shift, dtype=audio_tensor.dtype) #after use cuda, add device=audio_tensor.device
+        audio_shifted_tensor = torch.tensor(y_shift, dtype=audio_tensor.dtype, device=audio_tensor.device)
         return audio_shifted_tensor
     def forward(self, audio, max_pitch=None, min_pitch=None, bins_per_octave=None):
         if max_pitch == None:
