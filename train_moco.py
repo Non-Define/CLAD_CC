@@ -241,7 +241,7 @@ def main_worker(gpu, ngpus_per_node, args):
 # data loading code
 database_path = config["database_path"]
 cut_length = 64600
-batch_size = 24
+batch_size = 32
 score_save_path = "./results/scores.txt"
 augmentations_on_cpu = None
 manipulations = None
@@ -323,9 +323,6 @@ class ComposeWithNone:
             if t is not None:
                 x = t(x)
         return x
-    
-with open(score_save_path, 'w') as file:
-    pass
 
 for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
     score_list = []  
@@ -350,6 +347,10 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
     base_transform = ComposeWithNone(list(manipulations.values()))
     two_crop_transform = TwoCropsTransform(base_transform=base_transform)
     q, k = two_crop_transform(audio_input)
+    print(q)
+    print(q.shape)
+    print(k)
+    print(k.shape)
 
     # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
     model = MoCo_v2(
@@ -361,11 +362,7 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
     
     q = q.to(device)
     k = k.to(device)
-    q_emb = model.encoder_q(q)
-    k_emb = model.encoder_k(k)
-    
-    batch_out = model(audio_input)
-    batch_out = batch_out[1]  
+    batch_out = model(q,k)
 
     batch_score = (batch_out[:, 0]).data.cpu().numpy().ravel()
     label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
