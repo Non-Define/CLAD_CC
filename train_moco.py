@@ -364,7 +364,8 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
     k = k.to(device)
     batch_out = model(q,k)
 
-    batch_score = (batch_out[:, 0]).data.cpu().numpy().ravel()
+    logits, labels = model(q, k) 
+    batch_score = logits[:, 0].data.cpu().numpy().ravel()
     label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
     score_list.extend(batch_score.tolist())
 
