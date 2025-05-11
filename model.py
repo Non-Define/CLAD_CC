@@ -89,7 +89,9 @@ class MoCo_v2(nn.Module):
         """
         # At here we follow the official implementation of MoCo v2, https://github.com/facebookresearch/moco/blob/main/moco/builder.py
         # Encode the input batch with the query encoder
+        print("[Debug] Input to encoder_q (q):", x_q.shape)
         q = self.encoder_q(x_q) # queries: NxC
+        print("[Debug] Output from encoder_q:", q.shape)
         
         if self.mlp:
             q = self.projection_head_q(q)
@@ -101,7 +103,9 @@ class MoCo_v2(nn.Module):
             # Update the momentum encoder with the current encoder
             self.momentum_update()            
             # Encode the input batch with the key encoder
+            print("[Debug] Input to encoder_k (k):", x_k.shape)
             k = self.encoder_k(x_k)
+            print("[Debug] Output from encoder_k:", k.shape)
             if self.mlp:
                 k = self.projection_head_k(k)
             k = nn.functional.normalize(k, dim=1)
