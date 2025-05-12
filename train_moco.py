@@ -376,7 +376,6 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
 print('Scores saved to {}'.format(score_save_path))
 get_eval_metrics(score_save_path=score_save_path, plot_figure=False)
 
-   
 torch.cuda.set_device(args.gpu)
 print(f"Use GPU: {args.gpu} for training")
 model.cuda(args.gpu)  
