@@ -269,6 +269,7 @@ asvspoof_2019_LA_train_dataloader = DataLoader(
     num_workers=8,
     pin_memory=True
 )
+
 # Main part where you create dataset with manipulations and TwoCropsTransform
 # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
 noise_dataset_path = config["noise_dataset_path"]
