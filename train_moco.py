@@ -251,7 +251,7 @@ d_label_trn, file_eval, utt2spk = genSpoof_list(
     is_train=False,
     is_eval=False
 )
-print('no. of ASVspoof 2019 LA evaluating trials', len(file_eval))
+print('no. of ASVspoof 2019 LA training trials', len(file_eval))
 
 asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
     list_IDs=file_eval,
