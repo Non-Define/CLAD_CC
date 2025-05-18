@@ -606,7 +606,6 @@ class Model(nn.Module):
 
         return last_hidden, output
 
-
 class AasistEncoder(nn.Module):
     def __init__(self, d_args):
         super().__init__()
