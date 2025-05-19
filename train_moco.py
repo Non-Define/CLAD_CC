@@ -37,6 +37,7 @@ from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 #-----------------------------------------------------------------------------------------------
+
 torch.manual_seed(0)
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device = torch.device("cpu")
