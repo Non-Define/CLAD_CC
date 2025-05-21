@@ -218,7 +218,6 @@ def main_worker(gpu, ngpus_per_node, args):
 
         def print_pass(*args) -> None:
             pass
-
         builtins.print = print_pass
 
     if args.gpu is not None:
