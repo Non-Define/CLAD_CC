@@ -212,7 +212,6 @@ def main():
 
 def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
-
     # suppress printing if not master
     if args.multiprocessing_distributed and args.gpu != 0:
 
