@@ -17,6 +17,7 @@ import warnings
 import json
 import copy
 from tqdm import tqdm
+import gc
 
 from loader import TwoCropsTransform
 from datautils import TwoCropsTransform, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
@@ -37,8 +38,6 @@ from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 #-----------------------------------------------------------------------------------------------
-
-torch.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
@@ -206,9 +205,8 @@ def main():
         )
 
     if args.gpu is None:
-        args.gpu = 0  
-    else:
-        main_worker(args, args.gpu)
+        args.gpu = 0
+    main_worker(args.gpu, ngpus_per_node, args)
 
 def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
