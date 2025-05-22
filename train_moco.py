@@ -46,7 +46,7 @@ print(device)
 gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
 
-with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
+with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
     config = json.load(f_json)
 
 def load_model(config: dict):
@@ -376,7 +376,6 @@ get_train_metrics(score_save_path=score_save_path, plot_figure=False)
 
 torch.cuda.set_device(args.gpu)
 print(f"Use GPU: {args.gpu} for training")
-model.cuda(args.gpu)  
 
 criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 optimizer = torch.optim.Adam(
