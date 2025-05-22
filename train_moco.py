@@ -276,13 +276,13 @@ manipulations = {
     "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
     "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
     "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="wind", noise_dataset_path=noise_dataset_path),
-    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="breathing", noise_dataset_path=noise_dataset_path),
-    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="coughing", noise_dataset_path=noise_dataset_path),
-    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="rain", noise_dataset_path=noise_dataset_path),
-    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda",  noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cuda", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", noise_dataset_path=noise_dataset_path),
+    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", noise_dataset_path=noise_dataset_path),
+    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
     "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
     "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
     "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
@@ -304,10 +304,10 @@ manipulations = {
     "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
     "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
     "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
-    "resample_15000": ResampleAugmentation([15000], device="cuda"),
-    "resample_15500": ResampleAugmentation([15500], device="cuda"),
-    "resample_16500": ResampleAugmentation([16500], device="cuda"),
-    "resample_17000": ResampleAugmentation([17000], device="cuda"),
+    "resample_15000": ResampleAugmentation([15000]),
+    "resample_15500": ResampleAugmentation([15500]),
+    "resample_16500": ResampleAugmentation([16500]),
+    "resample_17000": ResampleAugmentation([17000]),
 }
 
 class ComposeWithNone:
@@ -322,27 +322,31 @@ class ComposeWithNone:
 
 for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
     score_list = []  
-    audio_input = audio_input.squeeze(1)
+
+    audio_input = audio_input.squeeze(1).cpu()
 
     if augmentations_on_cpu is not None:
         audio_input = augmentations_on_cpu(audio_input)
 
-    audio_input = audio_input.to(device)
-
     for manipulation_name, manipulation in manipulations.items():
         if manipulation is not None:
-            audio_input = manipulation(audio_input.to(device))
-            
+            manipulation = manipulation.to("cpu")
+            audio_input = manipulation(audio_input)
+
     if audio_input.shape[-1] < cut_length:
         audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
     elif audio_input.shape[-1] > cut_length:
         audio_input = audio_input[:, :cut_length]
+
+    print("audio_input device after augmentations:", audio_input.device)
+
     audio_input = audio_input.to(device)
-    print("audio_length", audio_input.shape)
 
     base_transform = ComposeWithNone(list(manipulations.values()))
     two_crop_transform = TwoCropsTransform(base_transform=base_transform)
-    q, k = two_crop_transform(audio_input)
+    q, k = two_crop_transform(audio_input) 
+    q = q.to(device)
+    k = k.to(device)
     print(q)
     print(q.shape)
     print(k)
@@ -354,7 +358,8 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
         encoder_k=encoder,
         queue_feature_dim=encoder.last_hidden
     ).to(device)
-    print(model)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"num of parameter: {total_params:,}개")
     
     q = q.to(device)
     k = k.to(device)

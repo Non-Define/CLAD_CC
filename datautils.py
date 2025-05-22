@@ -220,22 +220,27 @@ class AddEnvironmentalNoise(nn.Module):
         return noise_tensor, noise_tensor_power
 
     def add_environmental_noise(self, audio, max_snr_db, min_snr_db):
+   
+        device = audio.device
+        self.noise_tensor = self.noise_tensor.to(device)
+        self.noise_tensor_power = self.noise_tensor_power.to(device)
+
         snr_db = random.uniform(min_snr_db, max_snr_db)
         snr = 10 ** (snr_db / 10)
         signal_power = torch.mean(audio ** 2, dim=-1, keepdim=True)
         noise_power_needed = signal_power / snr
         noise_power_factor = noise_power_needed / self.noise_tensor_power
+
         noise = self.noise_tensor * torch.sqrt(noise_power_factor)
-        if self.add_before_audio_len != None:
-            if len(audio.shape) ==1:
-                tmp_zeros = torch.zeros_like(audio[:self.add_before_audio_len])
+
+        if self.add_before_audio_len is not None:
+            if len(audio.shape) == 1:
+                tmp_zeros = torch.zeros_like(audio[:self.add_before_audio_len]).to(device)
             else:
-                tmp_zeros = torch.zeros_like(audio[:, :self.add_before_audio_len])
+                tmp_zeros = torch.zeros_like(audio[:, :self.add_before_audio_len]).to(device)
             audio = torch.cat([tmp_zeros, audio], dim=-1)
             noise = torch.cat([noise, tmp_zeros], dim=-1)
-        # Add the noise to the audio
-        # print(f"datautils_Audio shape: {audio.shape}")
-        # print(f"datautils_Noise shape: {noise.shape}")
+
         noisy_audio = audio + noise
         return noisy_audio
     
@@ -254,19 +259,19 @@ class ResampleAugmentation(nn.Module):
     '''
     Since the resample takes a lot of time, we setup some predefined resample rate and randomly choose one of them to speed up.
     '''
-    def __init__(self, resample_rate: list, original_sr: int=16000, device="cuda"):
+    def __init__(self, resample_rate: list, original_sr: int=16000):
         super(ResampleAugmentation, self).__init__()
         self.resample_rate = resample_rate
         self.original_sr = original_sr   
-        self.device = device  
-        # create the resample augmentations here to speed up the forward process.  
         self.resample_transforms = nn.ModuleList()
-        for resample_rate in self.resample_rate:
-            self.resample_transforms.append(torchaudio.transforms.Resample(orig_freq=self.original_sr, new_freq=resample_rate).to(device))
+        for rate in self.resample_rate:
+            self.resample_transforms.append(torchaudio.transforms.Resample(orig_freq=self.original_sr, new_freq=rate))
+
     def forward(self, audio):
-        # choose a random resample transform from self.resample_transforms
+        device = torch.device("cpu")  
         resample_transform = random.choice(self.resample_transforms)
-        audio = audio.to(self.device)
+        resample_transform = resample_transform.to(device)
+        audio = audio.to(device)
         return resample_transform(audio)
     
 class SmoothingAugmentation(nn.Module):
