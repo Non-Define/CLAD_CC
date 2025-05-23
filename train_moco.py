@@ -168,7 +168,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--moco-k",
-    default=65536,
+    default=6144,
     type=int,
     help="queue size; number of negative keys (default: 65536)",
 )
