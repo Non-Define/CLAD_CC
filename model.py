@@ -89,9 +89,7 @@ class MoCo_v2(nn.Module):
         """
         # At here we follow the official implementation of MoCo v2, https://github.com/facebookresearch/moco/blob/main/moco/builder.py
         # Encode the input batch with the query encoder
-        print("[Debug] Input to encoder_q (q):", x_q.shape)
         q = self.encoder_q(x_q) # queries: NxC
-        print("[Debug] Output from encoder_q:", q.shape)
         
         if self.mlp:
             q = self.projection_head_q(q)
