@@ -326,7 +326,9 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
 
     if augmentations_on_cpu is not None:
         audio_input = augmentations_on_cpu(audio_input)
+
     manipulation_keys = [k for k, v in manipulations.items() if v is not None]
+
     chosen_manipulation_name = random.choice(manipulation_keys)
     chosen_manipulation = manipulations[chosen_manipulation_name]
     chosen_manipulation = chosen_manipulation.to("cpu")
