@@ -16,8 +16,8 @@ import time
 import warnings
 import json
 import copy
-from tqdm import tqdm
 import gc
+from tqdm import tqdm
 
 from loader import TwoCropsTransform
 from datautils import TwoCropsTransform, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
@@ -322,21 +322,21 @@ class ComposeWithNone:
 
 for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
     score_list = []  
-
     audio_input = audio_input.squeeze(1).cpu()
 
     if augmentations_on_cpu is not None:
         audio_input = augmentations_on_cpu(audio_input)
-
-    for manipulation_name, manipulation in manipulations.items():
-        if manipulation is not None:
-            manipulation = manipulation.to("cpu")
-            audio_input = manipulation(audio_input)
+    manipulation_keys = [k for k, v in manipulations.items() if v is not None]
+    chosen_manipulation_name = random.choice(manipulation_keys)
+    chosen_manipulation = manipulations[chosen_manipulation_name]
+    chosen_manipulation = chosen_manipulation.to("cpu")
+    audio_input = chosen_manipulation(audio_input)
 
     if audio_input.shape[-1] < cut_length:
         audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
     elif audio_input.shape[-1] > cut_length:
         audio_input = audio_input[:, :cut_length]
+    print("gyuhan", audio_input.shape)
 
     print("audio_input device after augmentations:", audio_input.device)
 
