@@ -81,7 +81,7 @@ parser.add_argument(
 parser.add_argument(
     "-b",
     "--batch-size",
-    default=24,
+    default=12,
     type=int,
     metavar="N",
     help="mini-batch size (default: 256), this is the total "
@@ -237,7 +237,7 @@ def main_worker(gpu, ngpus_per_node, args):
 # data loading code
 database_path = config["database_path"]
 cut_length = 64600
-batch_size =24
+batch_size =12
 score_save_path = "./results/scores.txt"
 augmentations_on_cpu = None
 manipulations = None
@@ -386,7 +386,7 @@ if args.resume:
 
 cudnn.benchmark = True
 
-x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=1024)
+x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=12)
 out_q, out_k = model(x1.to(device), x2.to(device))
 
 if args.distributed:
