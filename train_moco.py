@@ -69,7 +69,7 @@ parser.add_argument(
     help="number of data loading workers (default: 32)",
 )
 parser.add_argument(
-    "--epochs", default=150, type=int, metavar="N", help="number of total epochs to run"
+    "--epochs", default=1, type=int, metavar="N", help="number of total epochs to run"
 )
 parser.add_argument(
     "--start-epoch",
@@ -327,7 +327,6 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
         audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
     elif audio_input.shape[-1] > cut_length:
         audio_input = audio_input[:, :cut_length]
-    print("gyuhan", audio_input.shape)
     print("audio_input device after augmentations:", audio_input.device)
 
     audio_input = audio_input.to(device)
