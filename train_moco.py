@@ -335,10 +335,6 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
     q, k = two_crop_transform(audio_input) 
     q = q.to(device)
     k = k.to(device)
-    print(q)
-    print(q.shape)
-    print(k)
-    print(k.shape)
 
     # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
     model = MoCo_v2(
