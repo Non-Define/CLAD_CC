@@ -237,7 +237,7 @@ def main_worker(gpu, ngpus_per_node, args):
 # data loading code
 database_path = config["database_path"]
 cut_length = 64600
-batch_size = 32
+batch_size =24
 score_save_path = "./results/scores.txt"
 augmentations_on_cpu = None
 manipulations = None
@@ -364,7 +364,6 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
     q = q.to(device)
     k = k.to(device)
     batch_out = model(q,k)
-
     logits, labels = model(q, k) 
     batch_score = logits[:, 0].data.cpu().numpy().ravel()
     label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
