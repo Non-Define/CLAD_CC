@@ -331,7 +331,7 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
     print("audio_input device after augmentations:", audio_input.device)
 
     audio_input = audio_input.to(device)
-    two_crop_transform = TwoCropsTransform(base_transform=base_transform)
+    two_crop_transform = TwoCropsTransform(base_transform=chosen_manipulation)
     q, k = two_crop_transform(audio_input) 
     q = q.to(device)
     k = k.to(device)
