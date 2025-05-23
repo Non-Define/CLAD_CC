@@ -321,7 +321,6 @@ class GraphPool(nn.Module):
 
         return h
 
-
 class CONV(nn.Module):
     @staticmethod
     def to_mel(hz):
