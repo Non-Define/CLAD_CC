@@ -8,7 +8,7 @@ from typing import Callable, Optional, Union
 # mlp is the projection head, if mlp is True, then the projection head will be used, otherwise, the projection head will not be used 
 # Normally queue_feature_dim is set as the feature dim output by encoder
 class MoCo_v2(nn.Module):
-    def __init__(self, encoder_q, encoder_k, queue_feature_dim, queue_size=65536, momentum=0.999, temperature=0.07, mlp=False, return_q = False):
+    def __init__(self, encoder_q, encoder_k, queue_feature_dim, queue_size=6144, momentum=0.999, temperature=0.07, mlp=False, return_q = False):
         super(MoCo_v2, self).__init__()
         self.return_q = return_q
         # Initialize the momentum coefficient and temperature parameter
