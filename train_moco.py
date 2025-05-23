@@ -270,7 +270,6 @@ asvspoof_2019_LA_train_dataloader = DataLoader(
 # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
 noise_dataset_path = config["noise_dataset_path"]
 manipulations = {
-    "no_augmentation": None,
     "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
     "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
     "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
@@ -310,16 +309,6 @@ manipulations = {
     "resample_17000": ResampleAugmentation([17000]),
 }
 
-class ComposeWithNone:
-    def __init__(self, transforms):
-        self.transforms = transforms
-
-    def __call__(self, x):
-        for t in self.transforms:
-            if t is not None:
-                x = t(x)
-        return x
-
 for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
     score_list = []  
     audio_input = audio_input.squeeze(1).cpu()
@@ -339,12 +328,9 @@ for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_tr
     elif audio_input.shape[-1] > cut_length:
         audio_input = audio_input[:, :cut_length]
     print("gyuhan", audio_input.shape)
-
     print("audio_input device after augmentations:", audio_input.device)
 
     audio_input = audio_input.to(device)
-
-    base_transform = ComposeWithNone(list(manipulations.values()))
     two_crop_transform = TwoCropsTransform(base_transform=base_transform)
     q, k = two_crop_transform(audio_input) 
     q = q.to(device)
