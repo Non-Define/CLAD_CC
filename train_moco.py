@@ -427,24 +427,20 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
     # switch to train mode
     model.train()
     end = time.time()
-    for i, (images, _) in enumerate(asvspoof_2019_LA_train_dataloader):
+    for i, (q, k) in enumerate(asvspoof_2019_LA_train_dataloader):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        if args.gpu is not None:
-            images[0] = images[0].cuda(args.gpu, non_blocking=True)
-            images[1] = images[1].cuda(args.gpu, non_blocking=True)
-
         # compute output
-        output, target = model(im_q=images[0], im_k=images[1])
+        output, target = model(au_q=q, au_k=k)
         loss = criterion(output, target)
 
         # acc1/acc5 are (K+1)-way contrast classifier accuracy
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        losses.update(loss.item(), images[0].size(0))
-        top1.update(acc1[0], images[0].size(0))
-        top5.update(acc5[0], images[0].size(0))
+        losses.update(loss.item(), q.size(0))
+        top1.update(acc1[0], q.size(0))
+        top5.update(acc5[0], q.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -457,7 +453,6 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
 
         if i % args.print_freq == 0:
             progress.display(i)
-
 
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     torch.save(state, filename)
