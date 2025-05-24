@@ -336,7 +336,6 @@ def main_worker(gpu, ngpus_per_node, args):
             audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
         elif audio_input.shape[-1] > cut_length:
             audio_input = audio_input[:, :cut_length]
-        print("audio_input device after augmentations:", audio_input.device)
 
         audio_input = audio_input.to(device)
         two_crop_transform = TwoCropsTransform(base_transform=chosen_manipulation)
@@ -366,9 +365,6 @@ def main_worker(gpu, ngpus_per_node, args):
                 fh.write('- - {} {}\n'.format(label, cm_score))
 
     print('Scores saved to {}'.format(score_save_path))
-
-
-
     torch.cuda.set_device(args.gpu)
     print(f"Use GPU: {args.gpu} for training")
 
@@ -390,31 +386,17 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
-
-    x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=12)
-    out_q, out_k = model(x1.to(device), x2.to(device))
-
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
         train_sampler = None
 
-    train_loader = torch.utils.data.DataLoader(
-        batch_size=args.batch_size,
-        shuffle=(train_sampler is None),
-        num_workers=args.workers,
-        pin_memory=True,
-        sampler=train_sampler,
-        drop_last=True,
-    )
-
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
-
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
 
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
@@ -430,23 +412,22 @@ def main_worker(gpu, ngpus_per_node, args):
                 filename="checkpoint_{:04d}.pth.tar".format(epoch),
             )
  
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
     top1 = AverageMeter("Acc@1", ":6.2f")
     top5 = AverageMeter("Acc@5", ":6.2f")
     progress = ProgressMeter(
-        len(train_loader),
+        len(asvspoof_2019_LA_train_dataloader),
         [batch_time, data_time, losses, top1, top5],
         prefix="Epoch: [{}]".format(epoch),
     )
 
     # switch to train mode
     model.train()
-
     end = time.time()
-    for i, (images, _) in enumerate(train_loader):
+    for i, (images, _) in enumerate(asvspoof_2019_LA_train_dataloader):
         # measure data loading time
         data_time.update(time.time() - end)
 
