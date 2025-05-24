@@ -189,7 +189,7 @@ parser.add_argument(
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
 
-def main():
+def main() -> None:
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -204,8 +204,17 @@ def main():
             "from checkpoints."
         )
 
-    if args.gpu is None:
-        args.gpu = 0
+    if args.gpu is not None:
+        torch.cuda.set_device(args.gpu)
+        warnings.warn(
+            "You have chosen a specific GPU. This will completely "
+            "disable data parallelism."
+        )
+
+    args.distributed = False
+    args.multiprocessing_distributed = False
+
+    ngpus_per_node = 1 
     main_worker(args.gpu, ngpus_per_node, args)
 
 def main_worker(gpu, ngpus_per_node, args):
@@ -234,191 +243,192 @@ def main_worker(gpu, ngpus_per_node, args):
             rank=args.rank,
         )
 
-# data loading code
-database_path = config["database_path"]
-cut_length = 64600
-batch_size =12
-score_save_path = "./results/scores.txt"
-augmentations_on_cpu = None
-manipulations = None
+    # data loading code
+    database_path = config["database_path"]
+    cut_length = 64600
+    batch_size =12
+    score_save_path = "./results/scores.txt"
+    augmentations_on_cpu = None
+    manipulations = None
 
-d_label_trn, file_eval, utt2spk = genSpoof_list(
-    dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
-    is_train=False,
-    is_eval=False
-)
-print('no. of ASVspoof 2019 LA training trials', len(file_eval))
+    d_label_trn, file_eval, utt2spk = genSpoof_list(
+        dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
+        is_train=False,
+        is_eval=False
+    )
+    print('no. of ASVspoof 2019 LA training trials', len(file_eval))
 
-asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
-    list_IDs=file_eval,
-    labels=d_label_trn,
-    base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
-    cut_length=cut_length,
-    utt2spk=utt2spk
-)
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
+        list_IDs=file_eval,
+        labels=d_label_trn,
+        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+        cut_length=cut_length,
+        utt2spk=utt2spk
+    )
 
-asvspoof_2019_LA_train_dataloader = DataLoader(
-    asvspoof_LA_train_dataset,
-    batch_size=batch_size,
-    shuffle=False,
-    drop_last=False,
-    num_workers=8,
-    pin_memory=True
-)
+    asvspoof_2019_LA_train_dataloader = DataLoader(
+        asvspoof_LA_train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=8,
+        pin_memory=True
+    )
 
-# Main part where you create dataset with manipulations and TwoCropsTransform
-# MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-noise_dataset_path = config["noise_dataset_path"]
-manipulations = {
-    "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
-    "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
-    "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
-    "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
-    "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-    "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", noise_dataset_path=noise_dataset_path),
-    "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-    "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", noise_dataset_path=noise_dataset_path),
-    "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", noise_dataset_path=noise_dataset_path),
-    "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", noise_dataset_path=noise_dataset_path),
-    "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-    "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
-    "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
-    "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
-    "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
-    "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
-    "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
-    "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
-    "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
-    "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
-    "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
-    "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
-    "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
-    "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
-    "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
-    "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
-    "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
-    "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
-    "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
-    "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
-    "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
-    "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
-    "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
-    "resample_15000": ResampleAugmentation([15000]),
-    "resample_15500": ResampleAugmentation([15500]),
-    "resample_16500": ResampleAugmentation([16500]),
-    "resample_17000": ResampleAugmentation([17000]),
-}
+    # Main part where you create dataset with manipulations and TwoCropsTransform
+    # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
+    noise_dataset_path = config["noise_dataset_path"]
+    manipulations = {
+        "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
+        "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
+        "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
+        "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
+        "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
+        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", noise_dataset_path=noise_dataset_path),
+        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", noise_dataset_path=noise_dataset_path),
+        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+        "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
+        "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
+        "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
+        "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
+        "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
+        "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
+        "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
+        "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
+        "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
+        "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
+        "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
+        "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
+        "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
+        "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
+        "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
+        "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
+        "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
+        "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
+        "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
+        "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
+        "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
+        "resample_15000": ResampleAugmentation([15000]),
+        "resample_15500": ResampleAugmentation([15500]),
+        "resample_16500": ResampleAugmentation([16500]),
+        "resample_17000": ResampleAugmentation([17000]),
+    }
 
-for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
-    score_list = []  
-    audio_input = audio_input.squeeze(1).cpu()
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
+        score_list = []  
+        audio_input = audio_input.squeeze(1).cpu()
 
-    if augmentations_on_cpu is not None:
-        audio_input = augmentations_on_cpu(audio_input)
+        if augmentations_on_cpu is not None:
+            audio_input = augmentations_on_cpu(audio_input)
 
-    manipulation_keys = [k for k, v in manipulations.items() if v is not None]
+        manipulation_keys = [k for k, v in manipulations.items() if v is not None]
 
-    chosen_manipulation_name = random.choice(manipulation_keys)
-    chosen_manipulation = manipulations[chosen_manipulation_name]
-    chosen_manipulation = chosen_manipulation.to("cpu")
-    audio_input = chosen_manipulation(audio_input)
+        chosen_manipulation_name = random.choice(manipulation_keys)
+        chosen_manipulation = manipulations[chosen_manipulation_name]
+        chosen_manipulation = chosen_manipulation.to("cpu")
+        audio_input = chosen_manipulation(audio_input)
 
-    if audio_input.shape[-1] < cut_length:
-        audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
-    elif audio_input.shape[-1] > cut_length:
-        audio_input = audio_input[:, :cut_length]
-    print("audio_input device after augmentations:", audio_input.device)
+        if audio_input.shape[-1] < cut_length:
+            audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
+        elif audio_input.shape[-1] > cut_length:
+            audio_input = audio_input[:, :cut_length]
+        print("audio_input device after augmentations:", audio_input.device)
 
-    audio_input = audio_input.to(device)
-    two_crop_transform = TwoCropsTransform(base_transform=chosen_manipulation)
-    q, k = two_crop_transform(audio_input) 
-    q = q.to(device)
-    k = k.to(device)
+        audio_input = audio_input.to(device)
+        two_crop_transform = TwoCropsTransform(base_transform=chosen_manipulation)
+        q, k = two_crop_transform(audio_input) 
+        q = q.to(device)
+        k = k.to(device)
 
-    # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
-    model = MoCo_v2(
-        encoder_q=encoder,
-        encoder_k=encoder,
-        queue_feature_dim=encoder.last_hidden
-    ).to(device)
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"num of parameter: {total_params:,}개")
-    
-    q = q.to(device)
-    k = k.to(device)
-    batch_out = model(q,k)
-    logits, labels = model(q, k) 
-    batch_score = logits[:, 0].data.cpu().numpy().ravel()
-    label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
-    score_list.extend(batch_score.tolist())
+        # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
+        model = MoCo_v2(
+            encoder_q=encoder,
+            encoder_k=encoder,
+            queue_feature_dim=encoder.last_hidden
+        ).to(device)
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"num of parameter: {total_params:,}개")
+        
+        q = q.to(device)
+        k = k.to(device)
+        batch_out = model(q,k)
+        logits, labels = model(q, k) 
+        batch_score = logits[:, 0].data.cpu().numpy().ravel()
+        label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
+        score_list.extend(batch_score.tolist())
 
-    with open(score_save_path, 'a+') as fh:
-        for label, cm_score in zip(label_list, score_list):
-            fh.write('- - {} {}\n'.format(label, cm_score))
+        with open(score_save_path, 'a+') as fh:
+            for label, cm_score in zip(label_list, score_list):
+                fh.write('- - {} {}\n'.format(label, cm_score))
 
-print('Scores saved to {}'.format(score_save_path))
-get_train_metrics(score_save_path=score_save_path, plot_figure=False)
+    print('Scores saved to {}'.format(score_save_path))
 
-torch.cuda.set_device(args.gpu)
-print(f"Use GPU: {args.gpu} for training")
 
-criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-optimizer = torch.optim.Adam(
-    model.parameters(),
-    lr=args.lr,
-    weight_decay=args.weight_decay,
-)
-if args.resume:
-    if os.path.isfile(args.resume):
-        print("=> loading checkpoint '{}'".format(args.resume))
-        checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
-        args.start_epoch = checkpoint["epoch"]
-        model.load_state_dict(checkpoint["state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer"])
-        print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
-    else:
-        print("=> no checkpoint found at '{}'".format(args.resume))
 
-cudnn.benchmark = True
+    torch.cuda.set_device(args.gpu)
+    print(f"Use GPU: {args.gpu} for training")
 
-x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=12)
-out_q, out_k = model(x1.to(device), x2.to(device))
+    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
+            args.start_epoch = checkpoint["epoch"]
+            model.load_state_dict(checkpoint["state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer"])
+            print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
 
-if args.distributed:
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-else:
-    train_sampler = None
+    cudnn.benchmark = True
 
-train_loader = torch.utils.data.DataLoader(
-    batch_size=args.batch_size,
-    shuffle=(train_sampler is None),
-    num_workers=args.workers,
-    pin_memory=True,
-    sampler=train_sampler,
-    drop_last=True,
-)
+    x1, x2 = create_train_dataset_with_two_crops(database_path, batch_size=12)
+    out_q, out_k = model(x1.to(device), x2.to(device))
 
-for epoch in range(args.start_epoch, args.epochs):
     if args.distributed:
-        train_sampler.set_epoch(epoch)
-    adjust_learning_rate(optimizer, epoch, args)
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    else:
+        train_sampler = None
 
-    # train for one epoch
-    train(train_loader, model, criterion, optimizer, epoch, args)
+    train_loader = torch.utils.data.DataLoader(
+        batch_size=args.batch_size,
+        shuffle=(train_sampler is None),
+        num_workers=args.workers,
+        pin_memory=True,
+        sampler=train_sampler,
+        drop_last=True,
+    )
 
-    if not args.multiprocessing_distributed or (
-        args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
-    ):
-        save_checkpoint(
-            {
-                "epoch": epoch + 1,
-                "arch": args.arch,
-                "state_dict": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-            },
-            is_best=False,
-            filename="checkpoint_{:04d}.pth.tar".format(epoch),
-        )
+    for epoch in range(args.start_epoch, args.epochs):
+        if args.distributed:
+            train_sampler.set_epoch(epoch)
+        adjust_learning_rate(optimizer, epoch, args)
+
+        # train for one epoch
+        train(train_loader, model, criterion, optimizer, epoch, args)
+
+        if not args.multiprocessing_distributed or (
+            args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
+        ):
+            save_checkpoint(
+                {
+                    "epoch": epoch + 1,
+                    "arch": args.arch,
+                    "state_dict": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                },
+                is_best=False,
+                filename="checkpoint_{:04d}.pth.tar".format(epoch),
+            )
  
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter("Time", ":6.3f")
