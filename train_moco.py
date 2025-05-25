@@ -257,9 +257,17 @@ def main_worker(gpu, ngpus_per_node, args):
         is_eval=False
     )
     print('no. of ASVspoof 2019 LA training trials', len(file_eval))
-    
+
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
+        list_IDs=file_eval,
+        labels=d_label_trn,
+        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+        cut_length=cut_length,
+        utt2spk=utt2spk
+    )
+
     asvspoof_2019_LA_train_dataloader = DataLoader(
-        asvspoof_LA_train_dataset,
+        dataset=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
         batch_size=batch_size,
         shuffle=False,
         drop_last=False,
@@ -310,7 +318,7 @@ def main_worker(gpu, ngpus_per_node, args):
         "resample_17000": ResampleAugmentation([17000]),
     }
 
-    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
+    for batch_idx, (audio_input, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
         score_list = []  
         audio_input = audio_input.squeeze(1).cpu()
 
@@ -341,68 +349,56 @@ def main_worker(gpu, ngpus_per_node, args):
             encoder_k=encoder,
             queue_feature_dim=encoder.last_hidden
         ).to(device)
+        
         total_params = sum(p.numel() for p in model.parameters())
         print(f"num of parameter: {total_params:,}개")
         
-        q = q.to(device)
-        k = k.to(device)
-        batch_out = model(q,k)
-        logits, labels = model(q, k) 
-        batch_score = logits[:, 0].data.cpu().numpy().ravel()
-        label_list = ['bonafide' if i == 1 else 'spoof' for i in labels]
-        score_list.extend(batch_score.tolist())
+        torch.cuda.set_device(args.gpu)
+        print(f"Use GPU: {args.gpu} for training")
 
-        with open(score_save_path, 'a+') as fh:
-            for label, cm_score in zip(label_list, score_list):
-                fh.write('- - {} {}\n'.format(label, cm_score))
+        criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+        )
+        if args.resume:
+            if os.path.isfile(args.resume):
+                print("=> loading checkpoint '{}'".format(args.resume))
+                checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
+                args.start_epoch = checkpoint["epoch"]
+                model.load_state_dict(checkpoint["state_dict"])
+                optimizer.load_state_dict(checkpoint["optimizer"])
+                print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
+            else:
+                print("=> no checkpoint found at '{}'".format(args.resume))
 
-    print('Scores saved to {}'.format(score_save_path))
-    torch.cuda.set_device(args.gpu)
-    print(f"Use GPU: {args.gpu} for training")
-
-    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-    )
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
-            args.start_epoch = checkpoint["epoch"]
-            model.load_state_dict(checkpoint["state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer"])
-            print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
-
-    cudnn.benchmark = True
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    else:
-        train_sampler = None
-
-    for epoch in range(args.start_epoch, args.epochs):
+        cudnn.benchmark = True
         if args.distributed:
-            train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, epoch, args)
-        # train for one epoch
-        train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        else:
+            train_sampler = None
 
-        if not args.multiprocessing_distributed or (
-            args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
-        ):
-            save_checkpoint(
-                {
-                    "epoch": epoch + 1,
-                    "arch": args.arch,
-                    "state_dict": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                },
-                is_best=False,
-                filename="checkpoint_{:04d}.pth.tar".format(epoch),
-            )
+        for epoch in range(args.start_epoch, args.epochs):
+            if args.distributed:
+                train_sampler.set_epoch(epoch)
+            adjust_learning_rate(optimizer, epoch, args)
+            # train for one epoch
+            train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
+
+            if not args.multiprocessing_distributed or (
+                args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
+            ):
+                save_checkpoint(
+                    {
+                        "epoch": epoch + 1,
+                        "arch": args.arch,
+                        "state_dict": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                    },
+                    is_best=False,
+                    filename="checkpoint_{:04d}.pth.tar".format(epoch),
+                )
  
 def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter("Time", ":6.3f")
