@@ -361,43 +361,33 @@ def main_worker(gpu, ngpus_per_node, args):
             lr=args.lr,
             weight_decay=args.weight_decay,
         )
-        if args.resume:
-            if os.path.isfile(args.resume):
-                print("=> loading checkpoint '{}'".format(args.resume))
-                checkpoint = torch.load(args.resume, map_location=f"cuda:{args.gpu}")
-                args.start_epoch = checkpoint["epoch"]
-                model.load_state_dict(checkpoint["state_dict"])
-                optimizer.load_state_dict(checkpoint["optimizer"])
-                print(f"=> loaded checkpoint '{args.resume}' (epoch {checkpoint['epoch']})")
-            else:
-                print("=> no checkpoint found at '{}'".format(args.resume))
 
-        cudnn.benchmark = True
+    cudnn.benchmark = True
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    else:
+        train_sampler = None
+
+    for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
+            train_sampler.set_epoch(epoch)
+        adjust_learning_rate(optimizer, epoch, args)
+        # train for one epoch
+        train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
 
-        for epoch in range(args.start_epoch, args.epochs):
-            if args.distributed:
-                train_sampler.set_epoch(epoch)
-            adjust_learning_rate(optimizer, epoch, args)
-            # train for one epoch
-            train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
-
-            if not args.multiprocessing_distributed or (
-                args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
-            ):
-                save_checkpoint(
-                    {
-                        "epoch": epoch + 1,
-                        "arch": args.arch,
-                        "state_dict": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                    },
-                    is_best=False,
-                    filename="checkpoint_{:04d}.pth.tar".format(epoch),
-                )
+        if not args.multiprocessing_distributed or (
+            args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
+        ):
+            save_checkpoint(
+                {
+                    "epoch": epoch + 1,
+                    "arch": args.arch,
+                    "state_dict": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                },
+                is_best=False,
+                filename="checkpoint_{:04d}.pth.tar".format(epoch),
+            )
 
 def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter("Time", ":6.3f")
