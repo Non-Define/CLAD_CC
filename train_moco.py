@@ -267,7 +267,7 @@ def main_worker(gpu, ngpus_per_node, args):
     )
 
     asvspoof_2019_LA_train_dataloader = DataLoader(
-        dataset=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+        asvspoof_LA_train_dataset,
         batch_size=batch_size,
         shuffle=False,
         drop_last=False,
@@ -318,8 +318,7 @@ def main_worker(gpu, ngpus_per_node, args):
         "resample_17000": ResampleAugmentation([17000]),
     }
 
-    for batch_idx, (audio_input, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
-        score_list = []  
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
         audio_input = audio_input.squeeze(1).cpu()
 
         if augmentations_on_cpu is not None:
@@ -399,7 +398,7 @@ def main_worker(gpu, ngpus_per_node, args):
                     is_best=False,
                     filename="checkpoint_{:04d}.pth.tar".format(epoch),
                 )
- 
+
 def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
@@ -447,7 +446,6 @@ def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     if is_best:
         shutil.copyfile(filename, "model_best.pth.tar")
 
-
 class AverageMeter:
     """Computes and stores the average and current value"""
 
@@ -471,7 +469,6 @@ class AverageMeter:
     def __str__(self):
         fmtstr = "{name} {val" + self.fmt + "} ({avg" + self.fmt + "})"
         return fmtstr.format(**self.__dict__)
-
 
 class ProgressMeter:
     def __init__(self, num_batches, meters, prefix=""):
