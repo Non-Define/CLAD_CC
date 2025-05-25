@@ -249,17 +249,17 @@ def main_worker(gpu, ngpus_per_node, args):
     batch_size =12
     score_save_path = "./results/scores.txt"
     augmentations_on_cpu = None
-    manipulations = None
+    augmentations = None
 
-    d_label_trn, file_eval, utt2spk = genSpoof_list(
+    d_label_trn, file_train, utt2spk = genSpoof_list(
         dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
-        is_train=False,
+        is_train=True,
         is_eval=False
     )
-    print('no. of ASVspoof 2019 LA training trials', len(file_eval))
+    print('no. of ASVspoof 2019 LA training trials', len(file_train))
 
     asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
-        list_IDs=file_eval,
+        list_IDs=file_train,
         labels=d_label_trn,
         base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
         cut_length=cut_length,
@@ -319,25 +319,29 @@ def main_worker(gpu, ngpus_per_node, args):
     }
 
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
-        audio_input = audio_input.squeeze(1).cpu()
-
-        if augmentations_on_cpu is not None:
+        score_list = []  
+        # audio_input = torch.squeeze(audio_input)
+        audio_input = audio_input.squeeze(1)
+        if augmentations_on_cpu != None:
             audio_input = augmentations_on_cpu(audio_input)
+        audio_input = audio_input.to(device)
 
-        manipulation_keys = [k for k, v in manipulations.items() if v is not None]
-
-        chosen_manipulation_name = random.choice(manipulation_keys)
-        chosen_manipulation = manipulations[chosen_manipulation_name]
-        chosen_manipulation = chosen_manipulation.to("cpu")
-        audio_input = chosen_manipulation(audio_input)
-
+        if augmentations != None:
+            if manipulation_on_real == False:
+                # note that some manipulation will change the length of the audio, so we need to clip or pad it to the same length
+                audio_length = audio_input.shape[-1]
+                # only apply the augmentation on the spoofed audio, and pad or clip it to the same length
+                audio_input[labels==0] = pad_or_clip_batch(augmentations(audio_input[labels==0]), audio_length, random_clip=False)
+            else:
+                audio_input = augmentations(audio_input)  
+        # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
         if audio_input.shape[-1] < cut_length:
-            audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
+            audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
         elif audio_input.shape[-1] > cut_length:
             audio_input = audio_input[:, :cut_length]
 
         audio_input = audio_input.to(device)
-        two_crop_transform = TwoCropsTransform(base_transform=chosen_manipulation)
+        two_crop_transform = TwoCropsTransform(base_transform=manipulations)
         q, k = two_crop_transform(audio_input) 
         q = q.to(device)
         k = k.to(device)
@@ -354,13 +358,14 @@ def main_worker(gpu, ngpus_per_node, args):
         
         torch.cuda.set_device(args.gpu)
         print(f"Use GPU: {args.gpu} for training")
-
-        criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-        optimizer = torch.optim.Adam(
-            model.parameters(),
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-        )
+    
+    # define loss function (criterion) and optimizer
+    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
 
     cudnn.benchmark = True
     if args.distributed:
