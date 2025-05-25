@@ -257,15 +257,7 @@ def main_worker(gpu, ngpus_per_node, args):
         is_eval=False
     )
     print('no. of ASVspoof 2019 LA training trials', len(file_eval))
-
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
-        list_IDs=file_eval,
-        labels=d_label_trn,
-        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
-        cut_length=cut_length,
-        utt2spk=utt2spk
-    )
-
+    
     asvspoof_2019_LA_train_dataloader = DataLoader(
         asvspoof_LA_train_dataset,
         batch_size=batch_size,
