@@ -254,7 +254,6 @@ class AddEnvironmentalNoise(nn.Module):
             self.noise_tensor, self.noise_tensor_power = self.noise_dict[noise_category]
         return self.add_environmental_noise(audio, max_snr_db, min_snr_db)
 
-
 class ResampleAugmentation(nn.Module):
     '''
     Since the resample takes a lot of time, we setup some predefined resample rate and randomly choose one of them to speed up.
@@ -362,7 +361,6 @@ class AddZeroPadding(nn.Module):
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
 
-
 # Datasets
 class MoCoAudioDataset(torch.utils.data.Dataset):
     '''
@@ -417,7 +415,6 @@ class MoCoAudioDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.file_list)
-    
 
 # Evaluation utilities
 # Mainly modified from https://github.com/asvspoof-challenge/2021/blob/main/LA/Baseline-RawNet2/data_utils.py by "Hemlata Tak"
@@ -458,7 +455,6 @@ def pad(x, max_len=64600):
     num_repeats = int(max_len / x_len)+1
     padded_x = np.tile(x, (1, num_repeats))[:, :max_len][0]
     return padded_x	
-			
 
 class Dataset_ASVspoof2019_train(Dataset):
     def __init__(self, list_IDs, labels, utt2spk, base_dir, cut_length=64600):
