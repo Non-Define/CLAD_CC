@@ -244,6 +244,15 @@ def main_worker(gpu, ngpus_per_node, args):
         )
 
     # data loading code
+    # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
+    model = MoCo_v2(
+        encoder_q=encoder,
+        encoder_k=encoder,
+        queue_feature_dim=encoder.last_hidden
+    ).to(device)
+    
+    
+    
     database_path = config["database_path"]
     cut_length = 64600
     batch_size =12
@@ -273,12 +282,6 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=8,
         pin_memory=True
     )
-    # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
-    model = MoCo_v2(
-        encoder_q=encoder,
-        encoder_k=encoder,
-        queue_feature_dim=encoder.last_hidden
-    ).to(device)
     
     total_params = sum(p.numel() for p in model.parameters())
     print(f"num of parameter: {total_params:,}개")
@@ -346,29 +349,48 @@ def main_worker(gpu, ngpus_per_node, args):
             audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
         elif audio_input.shape[-1] > cut_length:
             audio_input = audio_input[:, :cut_length]
-            
-        x_q = audio_input
-        x_k = audio_input.clone()  
-        batch_out = model(x_q, x_k)
-     
-    # define loss function (criterion) and optimizer
+    
+    x_q = audio_input
+    x_k = audio_input.clone()  
+
+     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    optimizer = torch.optim.Adam(
+
+    optimizer = torch.optim.SGD(
         model.parameters(),
-        lr=args.lr,
+        args.lr,
+        momentum=args.momentum,
         weight_decay=args.weight_decay,
     )
 
+    # optionally resume from a checkpoint
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            if args.gpu is None:
+                checkpoint = torch.load(args.resume)
+            else:
+                # Map model to be loaded to specified single gpu.
+                loc = "cuda:{}".format(args.gpu)
+                checkpoint = torch.load(args.resume, map_location=loc)
+            args.start_epoch = checkpoint["epoch"]
+            model.load_state_dict(checkpoint["state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer"])
+            print(
+                "=> loaded checkpoint '{}' (epoch {})".format(
+                    args.resume, checkpoint["epoch"]
+                )
+            )
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
+
     cudnn.benchmark = True
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    else:
-        train_sampler = None
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
+        
         # train for one epoch
         train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
 
@@ -401,7 +423,7 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
     # switch to train mode
     model.train()
     end = time.time()
-    for i, (q, k) in enumerate(asvspoof_2019_LA_train_dataloader):
+    for i, (q, k) in enumerate(batch_out):
         # measure data loading time
         data_time.update(time.time() - end)
 
