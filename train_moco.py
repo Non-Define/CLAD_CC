@@ -251,7 +251,36 @@ def main_worker(gpu, ngpus_per_node, args):
         queue_feature_dim=encoder.last_hidden
     ).to(device)
     
-    
+    # define loss function (criterion) and optimizer
+    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        args.lr,
+        weight_decay=args.weight_decay,
+    )
+
+    # optionally resume from a checkpoint
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            if args.gpu is None:
+                checkpoint = torch.load(args.resume)
+            else:
+                # Map model to be loaded to specified single gpu.
+                loc = "cuda:{}".format(args.gpu)
+                checkpoint = torch.load(args.resume, map_location=loc)
+            args.start_epoch = checkpoint["epoch"]
+            model.load_state_dict(checkpoint["state_dict"])
+            optimizer.load_state_dict(checkpoint["optimizer"])
+            print(
+                "=> loaded checkpoint '{}' (epoch {})".format(
+                    args.resume, checkpoint["epoch"]
+                )
+            )
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
+
+    cudnn.benchmark = True
     
     database_path = config["database_path"]
     cut_length = 64600
@@ -352,38 +381,6 @@ def main_worker(gpu, ngpus_per_node, args):
     
     x_q = audio_input
     x_k = audio_input.clone()  
-
-     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        args.lr,
-        weight_decay=args.weight_decay,
-    )
-
-    # optionally resume from a checkpoint
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            if args.gpu is None:
-                checkpoint = torch.load(args.resume)
-            else:
-                # Map model to be loaded to specified single gpu.
-                loc = "cuda:{}".format(args.gpu)
-                checkpoint = torch.load(args.resume, map_location=loc)
-            args.start_epoch = checkpoint["epoch"]
-            model.load_state_dict(checkpoint["state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer"])
-            print(
-                "=> loaded checkpoint '{}' (epoch {})".format(
-                    args.resume, checkpoint["epoch"]
-                )
-            )
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
-
-    cudnn.benchmark = True
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
