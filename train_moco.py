@@ -355,9 +355,6 @@ def main_worker(gpu, ngpus_per_node, args):
         
         total_params = sum(p.numel() for p in model.parameters())
         print(f"num of parameter: {total_params:,}개")
-        
-        torch.cuda.set_device(args.gpu)
-        print(f"Use GPU: {args.gpu} for training")
     
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
