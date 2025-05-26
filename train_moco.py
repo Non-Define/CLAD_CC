@@ -72,6 +72,9 @@ parser.add_argument(
     "--epochs", default=1, type=int, metavar="N", help="number of total epochs to run"
 )
 parser.add_argument(
+    "--arch", default="aasist", help="model architecture"
+)
+parser.add_argument(
     "--start-epoch",
     default=0,
     type=int,
