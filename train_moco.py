@@ -265,7 +265,6 @@ def main_worker(gpu, ngpus_per_node, args):
         cut_length=cut_length,
         utt2spk=utt2spk
     )
-
     asvspoof_2019_LA_train_dataloader = DataLoader(
         asvspoof_LA_train_dataset,
         batch_size=batch_size,
@@ -274,7 +273,15 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=8,
         pin_memory=True
     )
-
+    # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
+    model = MoCo_v2(
+        encoder_q=encoder,
+        encoder_k=encoder,
+        queue_feature_dim=encoder.last_hidden
+    ).to(device)
+    
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"num of parameter: {total_params:,}개")
     # Main part where you create dataset with manipulations and TwoCropsTransform
     # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
     noise_dataset_path = config["noise_dataset_path"]
@@ -319,9 +326,9 @@ def main_worker(gpu, ngpus_per_node, args):
     }
 
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
-        score_list = []  
         # audio_input = torch.squeeze(audio_input)
         audio_input = audio_input.squeeze(1)
+        
         if augmentations_on_cpu != None:
             audio_input = augmentations_on_cpu(audio_input)
         audio_input = audio_input.to(device)
@@ -339,23 +346,11 @@ def main_worker(gpu, ngpus_per_node, args):
             audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
         elif audio_input.shape[-1] > cut_length:
             audio_input = audio_input[:, :cut_length]
-
-        audio_input = audio_input.to(device)
-        two_crop_transform = TwoCropsTransform(base_transform=manipulations)
-        q, k = two_crop_transform(audio_input) 
-        q = q.to(device)
-        k = k.to(device)
-
-        # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
-        model = MoCo_v2(
-            encoder_q=encoder,
-            encoder_k=encoder,
-            queue_feature_dim=encoder.last_hidden
-        ).to(device)
-        
-        total_params = sum(p.numel() for p in model.parameters())
-        print(f"num of parameter: {total_params:,}개")
-    
+            
+        x_q = audio_input
+        x_k = audio_input.clone()  
+        batch_out = model(x_q, x_k)
+     
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
     optimizer = torch.optim.Adam(
