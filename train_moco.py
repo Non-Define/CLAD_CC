@@ -356,7 +356,9 @@ def main_worker(gpu, ngpus_per_node, args):
         "resample_16500": ResampleAugmentation([16500]),
         "resample_17000": ResampleAugmentation([17000]),
     }
-
+    
+    q_list = []
+    k_list = []
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
         # audio_input = torch.squeeze(audio_input)
         audio_input = audio_input.squeeze(1)
@@ -378,9 +380,11 @@ def main_worker(gpu, ngpus_per_node, args):
             audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
         elif audio_input.shape[-1] > cut_length:
             audio_input = audio_input[:, :cut_length]
-    
-    x_q = audio_input
-    x_k = audio_input.clone()  
+        q = audio_input
+        k = audio_input.clone()  
+        
+        q_list.append(q)
+        k_list.append(k)
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
@@ -388,7 +392,7 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, epoch, args)
         
         # train for one epoch
-        train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
+        train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args, q_list, k_list)
 
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
@@ -404,7 +408,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 filename="checkpoint_{:04d}.pth.tar".format(epoch),
             )
 
-def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args):
+def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args, q_list, k_list):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
@@ -419,12 +423,13 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
     # switch to train mode
     model.train()
     end = time.time()
+    batch_out = list(zip(q_list, k_list))
     for i, (q, k) in enumerate(batch_out):
         # measure data loading time
         data_time.update(time.time() - end)
 
         # compute output
-        output, target = model(au_q=q, au_k=k)
+        output, target = model(x_q=q, x_k=k)
         loss = criterion(output, target)
 
         # acc1/acc5 are (K+1)-way contrast classifier accuracy
@@ -512,11 +517,11 @@ def accuracy(output, target, topk=(1,)):
 
         _, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
+        correct = pred.eq(target.reshape(1, -1).expand_as(pred))
 
         res = []
         for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
