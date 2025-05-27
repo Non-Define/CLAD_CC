@@ -383,9 +383,9 @@ def main_worker(gpu, ngpus_per_node, args):
             audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
         elif audio_input.shape[-1] > cut_length:
             audio_input = audio_input[:, :cut_length]
+            
         q = audio_input
         k = audio_input.clone()  
-        
         q_list.append(q)
         k_list.append(k)
 
