@@ -362,6 +362,7 @@ def main_worker(gpu, ngpus_per_node, args):
     
     q_list = []
     k_list = []
+    
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
         # audio_input = torch.squeeze(audio_input)
         audio_input = audio_input.squeeze(1)
