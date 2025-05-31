@@ -500,7 +500,6 @@ class ProgressMeter:
         fmt = "{:" + str(num_digits) + "d}"
         return "[" + fmt + "/" + fmt.format(num_batches) + "]"
 
-
 def adjust_learning_rate(optimizer, epoch, args):
     """Decay the learning rate based on schedule"""
     lr = args.lr
@@ -511,7 +510,6 @@ def adjust_learning_rate(optimizer, epoch, args):
             lr *= 0.1 if epoch >= milestone else 1.0
     for param_group in optimizer.param_groups:
         param_group["lr"] = lr
-
 
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
