@@ -18,8 +18,7 @@ import copy
 import gc
 from tqdm import tqdm
 
-from loader import TwoCropsTransform
-from datautils import TwoCropsTransform, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
+from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
 from model import MoCo_v2
 from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
 
@@ -316,7 +315,7 @@ def main_worker(gpu, ngpus_per_node, args):
     
     total_params = sum(p.numel() for p in model.parameters())
     print(f"num of parameter: {total_params:,}개")
-    # Main part where you create dataset with manipulations and TwoCropsTransform
+    
     # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
     noise_dataset_path = config["noise_dataset_path"]
     manipulations = {
