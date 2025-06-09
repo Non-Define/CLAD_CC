@@ -183,7 +183,7 @@ parser.add_argument(
     "--moco-t", default=0.07, type=float, help="softmax temperature (default: 0.07)"
 )
 
-# options for moco v2
+# options for MoCo_v2
 parser.add_argument("--mlp", action="store_true", help="use mlp head")
 parser.add_argument(
     "--aug-plus", action="store_true", help="use moco v2 data manipulations"
