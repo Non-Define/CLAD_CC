@@ -43,7 +43,6 @@ class InstanceLoss(nn.Module):
 
         return loss
 
-
 class ClusterLoss(nn.Module):
     def __init__(self, class_num, temperature, device):
         super(ClusterLoss, self).__init__()
