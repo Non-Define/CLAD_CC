@@ -1,39 +1,35 @@
 # import libraries
 
-import torch
-from torch.utils.data import Dataset, DataLoader
 import yaml  # used by RawNet2 to read the configuration
 import json  # used to read config file
 import aasist  # official AASIST implementation from https://github.com/clovaai/aasist/blob/main/models/AASIST.py
 import os
-import IPython.display as ipd  # used to display audio
-import aasist
-from tqdm import tqdm  # progress bar
-from model import  DownStreamLinearClassifier, RawNetEncoderBaseline, RawNetBaseline, SSDNet1D, SAMOArgs  # SSDNet is the Res-TSSDNet Model
-from datautils import genSpoof_list, Dataset_ASVspoof2019_train  # ASVspoof dataset utils
-# Used to get the evaluation metrics
-from sklearn.metrics import roc_auc_score, f1_score, balanced_accuracy_score
-from evaluate_tDCF_asvspoof19 import compute_eer
-import seaborn as sns
-import matplotlib.pyplot as plt
-import numpy as np
-# Manipulation classes used
-from datautils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, PitchShift, AddFade, ResampleAugmentation, pad_or_clip_batch
 import torchaudio.transforms
 
+from tqdm import tqdm  # progress bar
+import seaborn as sns
+import matplotlib.pyplot as plt
+import IPython.display as ipd  # used to display audio
+import numpy as np
 
-
+import torch
+from torch.utils.data import Dataset, DataLoader
+from evaluate_tDCF_asvspoof19 import compute_eer
+from model import  DownStreamLinearClassifier, MoCo_v2 
+from sklearn.metrics import roc_auc_score, f1_score, balanced_accuracy_score
+from datautils import VolumeChange, AddWhiteNoise, AddEnvironmentalNoise, WaveTimeStretch, AddEchoes, TimeShift, PitchShift, AddFade, ResampleAugmentation, pad_or_clip_batch, genSpoof_list, Dataset_ASVspoof2019_train  
+#--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 torch.manual_seed(0)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 
 # Evaluation Configurations
-batch_size = 32
+batch_size = 16
 gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
 
 # Load file
-with open("/home/hwang-gyuhan/Workspace/ND/config.conf", "r") as f_json:
+with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
     config = json.loads(f_json.read())
     
 def load_model(model_name:str, config:dict):
