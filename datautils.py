@@ -419,7 +419,7 @@ class MoCoAudioDataset(torch.utils.data.Dataset):
 # Evaluation utilities
 # Mainly modified from https://github.com/asvspoof-challenge/2021/blob/main/LA/Baseline-RawNet2/data_utils.py by "Hemlata Tak"
 # Obtain speaker information for SAMO implementation
-def genSpoof_list( dir_meta,is_train=False,is_eval=False):
+def genSpoof_train_list( dir_meta,is_train=False,is_eval=False):
     utt2spk = {}
     d_meta = {}
     file_list=[]
@@ -446,6 +446,43 @@ def genSpoof_list( dir_meta,is_train=False,is_eval=False):
             file_list.append(key)
             d_meta[key] = 1 if label == 'bonafide' else 0
         return d_meta,file_list,utt2spk
+    
+
+def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):
+    with open(json_path, 'r') as f:
+        data = json.load(f)  # JSON 전체를 리스트로 읽음
+    
+    utt2spk = {}
+    d_meta = {}
+    file_list = []
+    
+    if is_train:
+        for item in data:
+            key = item['name']
+            label = item['label']
+            method = item['method']
+            
+            # speaker info를 method로 임시 할당 (필요하면 다르게 조정 가능)
+            utt2spk[key] = method  
+            file_list.append(key)
+            d_meta[key] = label
+        return d_meta, file_list, utt2spk
+    
+    elif is_eval:
+        for item in data:
+            key = item['name']
+            file_list.append(key)
+        return file_list
+    else:
+        # train과 동일하게 처리
+        for item in data:
+            key = item['name']
+            label = item['label']
+            method = item['method']
+            utt2spk[key] = method
+            file_list.append(key)
+            d_meta[key] = label
+        return d_meta, file_list, utt2spk
 
 def pad(x, max_len=64600):
     x_len = x.shape[0]
