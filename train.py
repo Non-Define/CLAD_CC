@@ -27,6 +27,7 @@ import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
@@ -370,11 +371,33 @@ def main_worker(gpu, ngpus_per_node, args):
         audio_input = audio_input.to(device)
 
         audio_length = audio_input.shape[-1]
-        audio_input[labels==0] = pad_or_clip_batch(
-            manipulations(audio_input[labels==0]),
-            audio_length,
-            random_clip=False
-        ) 
+        if (labels == 0).any():
+            spoof_audio = audio_input[labels == 0]
+            keys = list(manipulations.keys())
+            random.shuffle(keys)
+
+            batch_size = spoof_audio.size(0)
+            augmented_audio_list = []
+
+            for i in range(batch_size):
+                key = keys[i % len(keys)]
+                transform = manipulations[key]
+
+                if transform is None:
+                    transformed = spoof_audio[i]
+                else:
+                    transformed = transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
+                if transformed.shape[-1] > audio_length:
+                    transformed = transformed[..., :audio_length]
+                elif transformed.shape[-1] < audio_length:
+                    pad_size = audio_length - transformed.shape[-1]
+                    transformed = F.pad(transformed, (0, pad_size))
+                transformed = transformed.to(audio_input.device)
+                augmented_audio_list.append(transformed)
+
+            augmented_audio = torch.stack(augmented_audio_list)
+            audio_input[labels == 0] = augmented_audio
+
         # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
         if audio_input.shape[-1] < cut_length:
             audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
