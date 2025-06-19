@@ -318,6 +318,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
     noise_dataset_path = config["noise_dataset_path"]
     manipulations = {
+        "no_augmentation": None,
         "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
         "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
         "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
@@ -368,14 +369,12 @@ def main_worker(gpu, ngpus_per_node, args):
             audio_input = augmentations_on_cpu(audio_input)
         audio_input = audio_input.to(device)
 
-        if augmentations != None:
-            if manipulation_on_real == False:
-                # note that some manipulation will change the length of the audio, so we need to clip or pad it to the same length
-                audio_length = audio_input.shape[-1]
-                # only apply the augmentation on the spoofed audio, and pad or clip it to the same length
-                audio_input[labels==0] = pad_or_clip_batch(augmentations(audio_input[labels==0]), audio_length, random_clip=False)
-            else:
-                audio_input = augmentations(audio_input)  
+        audio_length = audio_input.shape[-1]
+        audio_input[labels==0] = pad_or_clip_batch(
+            manipulations(audio_input[labels==0]),
+            audio_length,
+            random_clip=False
+        ) 
         # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
         if audio_input.shape[-1] < cut_length:
             audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
