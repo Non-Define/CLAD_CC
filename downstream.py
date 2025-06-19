@@ -12,6 +12,7 @@ import random
 import shutil
 import time
 import warnings
+import json
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -22,26 +23,47 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
+from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
+
+from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
+from model import DownStreamLinearClassifier
+from datautils import  genSpoof_downstream_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
+
+
+with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
+    config = json.load(f_json)
+
+def load_model(config: dict):
+    aasist_config_path = config['aasist_config_path']
+    with open(aasist_config_path, "r") as f_json:
+        aasist_config = json.load(f_json)
+    
+    return aasist_config["model_config"]
+
+d_args = load_model(config)
+encoder = AasistEncoder(d_args=d_args)
+
+model_names = ["aasist_encoder"]
 
 
 model_names = sorted(
     name
     for name in models.__dict__
-    if name.islower() and not name.startswith("__") and callable(models.__dict__[name])
+    if not name.startswith("__") and callable(models.__dict__[name])
 )
 
-parser = argparse.ArgumentParser(description="PyTorch ImageNet Training")
-parser.add_argument("data", metavar="DIR", help="path to dataset")
+parser = argparse.ArgumentParser(description="PyTorch Aasist Training")
+parser.add_argument("data", metavar="DIR", nargs="?", default="/home/cnrl/Workspace/ND", help="path to dataset")
 parser.add_argument(
     "-a",
     "--arch",
     metavar="ARCH",
-    default="resnet50",
+    default="aasist",
     choices=model_names,
-    help="model architecture: " + " | ".join(model_names) + " (default: resnet50)",
+    help="model architecture: " + " | ".join(model_names) + " (default: aasist)",
 )
 parser.add_argument(
     "-j",
@@ -151,7 +173,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--pretrained", default="", type=str, help="path to moco pretrained checkpoint"
+    "--pretrained", default="/home/cnrl/Workspace/ND/checkpoint/checkpoint_0149.pth.tar", type=str, help="path to moco pretrained checkpoint"
 )
 
 best_acc1 = 0
@@ -228,43 +250,28 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     # create model
     # pyre-fixme[61]: `print` is undefined, or not always defined.
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch]()
+    encoder = AasistEncoder(d_args=d_args)
+    model = DownStreamLinearClassifier(encoder=encoder, input_depth=160)
 
-    # freeze all layers but the last fc
-    for name, param in model.named_parameters():
-        if name not in ["fc.weight", "fc.bias"]:
-            param.requires_grad = False
-    # init the fc layer
-    model.fc.weight.data.normal_(mean=0.0, std=0.01)
-    model.fc.bias.data.zero_()
+    for name, param in model.encoder.named_parameters():
+        param.requires_grad = False
 
-    # load from pre-trained, before DistributedDataParallel constructor
     if args.pretrained:
         if os.path.isfile(args.pretrained):
-            # pyre-fixme[61]: `print` is undefined, or not always defined.
             print("=> loading checkpoint '{}'".format(args.pretrained))
             checkpoint = torch.load(args.pretrained, map_location="cpu")
-
-            # rename moco pre-trained keys
             state_dict = checkpoint["state_dict"]
+
+            new_state_dict = {}
             for k in list(state_dict.keys()):
-                # retain only encoder_q up to before the embedding layer
-                if k.startswith("module.encoder_q") and not k.startswith(
-                    "module.encoder_q.fc"
-                ):
-                    # remove prefix
-                    state_dict[k[len("module.encoder_q.") :]] = state_dict[k]
-                # delete renamed or unused k
-                del state_dict[k]
+                if k.startswith("module.encoder_q") and not k.startswith("module.encoder_q.fc"):
+                    new_key = k[len("module.encoder_q."):]
+                    new_state_dict[new_key] = state_dict[k]
 
             args.start_epoch = 0
-            msg = model.load_state_dict(state_dict, strict=False)
-            assert set(msg.missing_keys) == {"fc.weight", "fc.bias"}
-
-            # pyre-fixme[61]: `print` is undefined, or not always defined.
-            print("=> loaded pre-trained model '{}'".format(args.pretrained))
+            msg = encoder.load_state_dict(new_state_dict, strict=False)
+            
         else:
-            # pyre-fixme[61]: `print` is undefined, or not always defined.
             print("=> no checkpoint found at '{}'".format(args.pretrained))
 
     if args.distributed:
@@ -339,22 +346,27 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     cudnn.benchmark = True
 
     # Data loading code
-    traindir = os.path.join(args.data, "train")
-    valdir = os.path.join(args.data, "val")
+    traindir = os.path.join(args.data, "flac")
+    valdir = os.path.join(args.data, "flac")
     normalize = transforms.Normalize(
         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     )
+    
+    database_path = config["database_path"]
+    cut_length = 64600
+    batch_size =12
+    d_label_trn, file_train, utt2spk = genSpoof_downstream_list(
+        json_path="/home/cnrl/Workspace/ND/label.json",
+        is_train=False,
+        is_eval=False
+    )
 
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose(
-            [
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ]
-        ),
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
+        list_IDs=file_train,
+        labels=d_label_trn,
+        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+        cut_length=cut_length,
+        utt2spk=utt2spk
     )
 
     if args.distributed:
@@ -362,32 +374,25 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     else:
         train_sampler = None
 
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=(train_sampler is None),
-        num_workers=args.workers,
-        pin_memory=True,
-        sampler=train_sampler,
+    asvspoof_2019_LA_train_dataloader = DataLoader(
+        asvspoof_LA_train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=8,
+        pin_memory=True
+    )
+    
+    asvspoof_2019_LA_downstream_dataloader = DataLoader(
+        asvspoof_LA_train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=8,
+        pin_memory=True
     )
 
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(
-            valdir,
-            transforms.Compose(
-                [
-                    transforms.Resize(256),
-                    transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    normalize,
-                ]
-            ),
-        ),
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.workers,
-        pin_memory=True,
-    )
+    
 
     if args.evaluate:
         validate(val_loader, model, criterion, args)
@@ -400,10 +405,10 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, args)
+        acc1 = validate(asvspoof_2019_LA_downstream_dataloader, model, criterion, args)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -426,14 +431,14 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
                 sanity_check(model.state_dict(), args.pretrained)
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args) -> None:
+def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args) -> None:
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
     top1 = AverageMeter("Acc@1", ":6.2f")
     top5 = AverageMeter("Acc@5", ":6.2f")
     progress = ProgressMeter(
-        len(train_loader),
+        len(asvspoof_2019_LA_train_dataloader),
         [batch_time, data_time, losses, top1, top5],
         prefix="Epoch: [{}]".format(epoch),
     )
@@ -445,47 +450,35 @@ def train(train_loader, model, criterion, optimizer, epoch, args) -> None:
     BatchNorm in train mode may revise running mean/std (even if it receives
     no gradient), which are part of the model parameters too.
     """
-    model.eval()
+    model.eval()  
+    with torch.no_grad():  
+        for i, batch in enumerate(asvspoof_2019_LA_train_dataloader):
+            print(f"batch {i}: {type(batch)} - length {len(batch)}")
+            break
+            data_time.update(time.time() - end)
 
-    end = time.time()
-    for i, (images, target) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
+            output, target = model(x_q=q, x_k=k)
+            loss = criterion(output, target)
 
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
+            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            losses.update(loss.item(), q.size(0))
+            top1.update(acc1[0], q.size(0))
+            top5.update(acc5[0], q.size(0))
 
-        # compute output
-        output = model(images)
-        loss = criterion(output, target)
+            batch_time.update(time.time() - end)
+            end = time.time()
 
-        # measure accuracy and record loss
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        losses.update(loss.item(), images.size(0))
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
-
-        # compute gradient and do SGD step
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if i % args.print_freq == 0:
-            progress.display(i)
+            if i % args.print_freq == 0:
+                progress.display(i)
 
 
-def validate(val_loader, model, criterion, args):
+def validate(asvspoof_2019_LA_downstream_dataloader, model, criterion, args):
     batch_time = AverageMeter("Time", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
     top1 = AverageMeter("Acc@1", ":6.2f")
     top5 = AverageMeter("Acc@5", ":6.2f")
     progress = ProgressMeter(
-        len(val_loader), [batch_time, losses, top1, top5], prefix="Test: "
+        len(asvspoof_2019_LA_downstream_dataloader), [batch_time, losses, top1, top5], prefix="Test: "
     )
 
     # switch to evaluate mode
@@ -493,10 +486,16 @@ def validate(val_loader, model, criterion, args):
 
     with torch.no_grad():
         end = time.time()
-        for i, (images, target) in enumerate(val_loader):
+        for i, batch in enumerate(asvspoof_2019_LA_downstream_dataloader):
+            inputs, ids, targets = batch
+
+            print(type(inputs), inputs.shape)
+            print(type(ids), ids)           
+            print(type(targets), targets) 
+            
             if args.gpu is not None:
                 images = images.cuda(args.gpu, non_blocking=True)
-            target = target.cuda(args.gpu, non_blocking=True)
+                target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
             output = model(images)
