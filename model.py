@@ -169,7 +169,7 @@ class DownStreamLinearClassifier(nn.Module):
         super(DownStreamLinearClassifier, self).__init__()
         self.input_depth = input_depth
         self.encoder = encoder  # this should be able to encoder the input(batch_size, 64600) into feature vectors(batch_size, input_depth)
-        self.fc = nn.Linear(input_depth, 2)  
+        self.fc = nn.Linear(input_depth, 11)  
 
     def forward(self, x):
         x = self.encoder(x)
@@ -185,7 +185,7 @@ class DownStreamTwoLayerClassifier(nn.Module):
         self.input_depth = input_depth
         self.fc1 = nn.Linear(input_depth, 128) 
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(128, 2)  
+        self.fc2 = nn.Linear(128, 11)  
 
     def forward(self, x):
         x = self.encoder(x)
@@ -204,7 +204,7 @@ class DownStreamThreeLayerClassifier(nn.Module):
         self.fc1 = nn.Linear(input_depth, 128) 
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(128, 64)  
-        self.fc3 = nn.Linear(64, 2)  
+        self.fc3 = nn.Linear(64, 11)  
 
     def forward(self, x):
         x = self.encoder(x)
