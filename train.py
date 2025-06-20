@@ -17,7 +17,7 @@ import copy
 import gc
 from tqdm import tqdm
 
-from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
+from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019, pad_or_clip_batch
 from model import MoCo_v2
 from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
 
@@ -297,7 +297,7 @@ def main_worker(gpu, ngpus_per_node, args):
     )
     print('no. of ASVspoof 2019 LA training trials', len(file_train))
 
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019(
         list_IDs=file_train,
         labels=d_label_trn,
         base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
