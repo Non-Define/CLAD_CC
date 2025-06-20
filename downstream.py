@@ -560,19 +560,19 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
     for i, batch in enumerate(asvspoof_2019_LA_train_dataloader):
         # measure data loading time
         data_time.update(time.time() - end)
-        output, ids, target = batch
+        audio, ids, target = batch
         
         if args.gpu is not None:
-            output = output.cuda(args.gpu, non_blocking=True)
+            audio = audio.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
 
-        output, target = model(x_q=q, x_k=k)
+        output = model(audio)
         loss = criterion(output, target)
 
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        losses.update(loss.item(), q.size(0))
-        top1.update(acc1[0], q.size(0))
-        top5.update(acc5[0], q.size(0))
+        losses.update(loss.item(), audio.size(0))
+        top1.update(acc1[0], audio.size(0))
+        top5.update(acc5[0], audio.size(0))
 
         batch_time.update(time.time() - end)
         end = time.time()
