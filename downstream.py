@@ -454,12 +454,9 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         "resample_17000": ResampleAugmentation([17000]),
     }
     
-    q_list = []
-    k_list = []
-    
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
         # audio_input = torch.squeeze(audio_input)
-        audio_input = audio_input.squeeze()
+        audio_input = audio_input.squeeze(1)
         
         if augmentations_on_cpu != None:
             audio_input = augmentations_on_cpu(audio_input)
@@ -487,6 +484,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
                 elif transformed.shape[-1] < audio_length:
                     pad_size = audio_length - transformed.shape[-1]
                     transformed = F.pad(transformed, (0, pad_size))
+                    
                 transformed = transformed.to(audio_input.device)
                 augmented_audio_list.append(transformed)
 
@@ -565,7 +563,8 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
         if args.gpu is not None:
             audio = audio.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
-
+            
+        print("입력 audio shape:", audio.shape)
         output = model(audio)
         loss = criterion(output, target)
 
