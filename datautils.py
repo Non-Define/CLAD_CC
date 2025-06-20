@@ -449,13 +449,12 @@ def genSpoof_train_list( dir_meta, is_train=False, is_eval=False):
         return d_meta,file_list,utt2spk
     
 
-def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):
-    with open(json_path, 'r') as f:
-        data = json.load(f)  
-    
+def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):  
     utt2spk = {}
     d_meta = {}
     file_list = []
+    with open(json_path, 'r') as f:
+        data = json.load(f)
     
     if is_train:
         for item in data:
