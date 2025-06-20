@@ -13,10 +13,13 @@ import shutil
 import time
 import warnings
 import json
+from tqdm import tqdm
 
 import torch
+import torchaudio
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
+import torch.nn.functional as F
 import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.parallel
@@ -30,8 +33,14 @@ import torchvision.transforms as transforms
 
 from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
 from model import DownStreamLinearClassifier
-from datautils import  genSpoof_downstream_list, genSpoof_train_list, Dataset_ASVspoof2019_train, Dataset_ASVspoof2019_downstream, pad_or_clip_batch
+from datautils import  genSpoof_downstream_list, Dataset_ASVspoof2019, pad_or_clip_batch, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding
+#-----------------------------------------------------------------------------------------------------------------
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
+# Configurations
+gpu = 0  # GPU id to use
+torch.cuda.set_device(gpu)
 
 with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
     config = json.load(f_json)
@@ -248,7 +257,6 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     # create model
     # pyre-fixme[61]: `print` is undefined, or not always defined.
     print("=> creating model '{}'".format(args.arch))
-
     model = DownStreamLinearClassifier(encoder=encoder, input_depth=160)
 
     for name, param in model.encoder.named_parameters():
@@ -353,16 +361,19 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     database_path = config["database_path"]
     cut_length = 64600
     batch_size =12
+    score_save_path = "./results/scores.txt"
+    augmentations_on_cpu = None
+    augmentations = None
     #---------------------------------------------------------------------------------------------------------------------------
     # train
-    d_label_trn, file_train, utt2spk = genSpoof_train_list(
-        dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
-        is_train=True,
-        is_eval=False
+    d_label_trn, file_train, utt2spk = genSpoof_downstream_list(
+        json_path="/home/cnrl/Workspace/ND/train_label.json",
+        is_train=False,
+        is_eval=True
     )
-    print('no. of ASVspoof 2019 LA training trials', len(file_train))
+    print('no. of ASVspoof 2019 LA downstreaming trials', len(file_train))
 
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019(
         list_IDs=file_train,
         labels=d_label_trn,
         base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
@@ -380,19 +391,20 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     #---------------------------------------------------------------------------------------------------------------------------
     # validate
     d_label_trn, file_train, utt2spk = genSpoof_downstream_list(
-        json_path="/home/cnrl/Workspace/ND/label.json",
+        json_path="/home/cnrl/Workspace/ND/dev_label.json",
         is_train=False,
         is_eval=True
     )
-
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_downstream(
+    print('no. of ASVspoof 2019 LA downstreaming(validate) trials', len(file_train))
+    
+    asvspoof_LA_downstream_dataset = Dataset_ASVspoof2019(
         list_IDs=file_train,
         labels=d_label_trn,
-        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_dev/'),
         cut_length=cut_length,
         utt2spk=utt2spk
     )
-    asvspoof_2019_LA_train_dataloader = DataLoader(
+    asvspoof_2019_LA_downstream_dataloader = DataLoader(
         asvspoof_LA_train_dataset,
         batch_size=batch_size,
         shuffle=False,
