@@ -458,6 +458,12 @@ def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):
     if is_train:
         for item in data:
             key = item['name']
+            file_list.append(key)
+        return file_list
+    
+    elif is_eval:
+        for item in data:
+            key = item['name']
             label = item['label']
             method = item['method']
             
@@ -466,11 +472,6 @@ def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):
             d_meta[key] = label
         return d_meta, file_list, utt2spk
     
-    elif is_eval:
-        for item in data:
-            key = item['name']
-            file_list.append(key)
-        return file_list
     else:
         for item in data:
             key = item['name']
