@@ -381,7 +381,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     asvspoof_2019_LA_train_dataloader = DataLoader(
         asvspoof_LA_train_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=True,
         drop_last=False,
         num_workers=8,
         pin_memory=True
@@ -405,7 +405,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     asvspoof_2019_LA_downstream_dataloader = DataLoader(
         asvspoof_LA_train_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=True,
         drop_last=False,
         num_workers=8,
         pin_memory=True
@@ -459,7 +459,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
         # audio_input = torch.squeeze(audio_input)
-        audio_input = audio_input.squeeze(1)
+        audio_input = audio_input.squeeze()
         
         if augmentations_on_cpu != None:
             audio_input = augmentations_on_cpu(audio_input)
