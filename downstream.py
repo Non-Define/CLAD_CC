@@ -30,7 +30,7 @@ import torchvision.transforms as transforms
 
 from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
 from model import DownStreamLinearClassifier
-from datautils import  genSpoof_downstream_list, Dataset_ASVspoof2019_train, pad_or_clip_batch
+from datautils import  genSpoof_downstream_list, genSpoof_train_list, Dataset_ASVspoof2019_train, Dataset_ASVspoof2019_downstream, pad_or_clip_batch
 
 
 with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
@@ -47,8 +47,6 @@ d_args = load_model(config)
 encoder = AasistEncoder(d_args=d_args)
 
 model_names = ["aasist_encoder"]
-
-
 model_names = sorted(
     name
     for name in models.__dict__
@@ -250,7 +248,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     # create model
     # pyre-fixme[61]: `print` is undefined, or not always defined.
     print("=> creating model '{}'".format(args.arch))
-    encoder = AasistEncoder(d_args=d_args)
+
     model = DownStreamLinearClassifier(encoder=encoder, input_depth=160)
 
     for name, param in model.encoder.named_parameters():
@@ -355,11 +353,14 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     database_path = config["database_path"]
     cut_length = 64600
     batch_size =12
-    d_label_trn, file_train, utt2spk = genSpoof_downstream_list(
-        json_path="/home/cnrl/Workspace/ND/label.json",
-        is_train=False,
+    #---------------------------------------------------------------------------------------------------------------------------
+    # train
+    d_label_trn, file_train, utt2spk = genSpoof_train_list(
+        dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
+        is_train=True,
         is_eval=False
     )
+    print('no. of ASVspoof 2019 LA training trials', len(file_train))
 
     asvspoof_LA_train_dataset = Dataset_ASVspoof2019_train(
         list_IDs=file_train,
@@ -368,12 +369,29 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         cut_length=cut_length,
         utt2spk=utt2spk
     )
+    asvspoof_2019_LA_train_dataloader = DataLoader(
+        asvspoof_LA_train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=8,
+        pin_memory=True
+    )
+    #---------------------------------------------------------------------------------------------------------------------------
+    # validate
+    d_label_trn, file_train, utt2spk = genSpoof_downstream_list(
+        json_path="/home/cnrl/Workspace/ND/label.json",
+        is_train=False,
+        is_eval=True
+    )
 
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    else:
-        train_sampler = None
-
+    asvspoof_LA_train_dataset = Dataset_ASVspoof2019_downstream(
+        list_IDs=file_train,
+        labels=d_label_trn,
+        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+        cut_length=cut_length,
+        utt2spk=utt2spk
+    )
     asvspoof_2019_LA_train_dataloader = DataLoader(
         asvspoof_LA_train_dataset,
         batch_size=batch_size,
@@ -383,16 +401,93 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         pin_memory=True
     )
     
-    asvspoof_2019_LA_downstream_dataloader = DataLoader(
-        asvspoof_LA_train_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=False,
-        num_workers=8,
-        pin_memory=True
-    )
-
+    # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
+    noise_dataset_path = config["noise_dataset_path"]
+    manipulations = {
+        "no_augmentation": None,
+        "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
+        "volume_change_10": torchaudio.transforms.Vol(gain=0.1,gain_type='amplitude'),
+        "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
+        "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
+        "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
+        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", noise_dataset_path=noise_dataset_path),
+        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
+        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", noise_dataset_path=noise_dataset_path),
+        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", noise_dataset_path=noise_dataset_path),
+        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", noise_dataset_path=noise_dataset_path),
+        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
+        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+        "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
+        "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
+        "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
+        "pitchshift_down_090": PitchShift(max_pitch=0.90, min_pitch=0.90, bins_per_octave=12),
+        "timestretch_110": WaveTimeStretch(max_ratio=1.10, min_ratio=1.10, n_fft=128),
+        "timestretch_105": WaveTimeStretch(max_ratio=1.05, min_ratio=1.05, n_fft=128),
+        "timestretch_095": WaveTimeStretch(max_ratio=0.95, min_ratio=0.95, n_fft=128),
+        "timestretch_090": WaveTimeStretch(max_ratio=0.90, min_ratio=0.90, n_fft=128),
+        "echoes_1000_02": AddEchoes(max_delay=1000, max_strengh=0.2, min_delay=1000, min_strength=0.2),
+        "echoes_1000_05": AddEchoes(max_delay=1000, max_strengh=0.5, min_delay=1000, min_strength=0.5),
+        "echoes_2000_05": AddEchoes(max_delay=2000, max_strengh=0.5, min_delay=2000, min_strength=0.5),
+        "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
+        "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
+        "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
+        "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
+        "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
+        "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
+        "fade_50_exponential": AddFade(max_fade_size=0.5,fade_shape='exponential', fix_fade_size=True),
+        "fade_50_quarter_sine": AddFade(max_fade_size=0.5,fade_shape='quarter_sine', fix_fade_size=True),
+        "fade_50_half_sine": AddFade(max_fade_size=0.5,fade_shape='half_sine', fix_fade_size=True),
+        "fade_50_logarithmic": AddFade(max_fade_size=0.5,fade_shape='logarithmic', fix_fade_size=True),
+        "resample_15000": ResampleAugmentation([15000]),
+        "resample_15500": ResampleAugmentation([15500]),
+        "resample_16500": ResampleAugmentation([16500]),
+        "resample_17000": ResampleAugmentation([17000]),
+    }
     
+    q_list = []
+    k_list = []
+    
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
+        # audio_input = torch.squeeze(audio_input)
+        audio_input = audio_input.squeeze(1)
+        
+        if augmentations_on_cpu != None:
+            audio_input = augmentations_on_cpu(audio_input)
+        audio_input = audio_input.to(device)
+
+        audio_length = audio_input.shape[-1]
+        if (labels == 0).any():
+            spoof_audio = audio_input[labels == 0]
+            keys = list(manipulations.keys())
+            random.shuffle(keys)
+
+            batch_size = spoof_audio.size(0)
+            augmented_audio_list = []
+
+            for i in range(batch_size):
+                key = keys[i % len(keys)]
+                transform = manipulations[key]
+
+                if transform is None:
+                    transformed = spoof_audio[i]
+                else:
+                    transformed = transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
+                if transformed.shape[-1] > audio_length:
+                    transformed = transformed[..., :audio_length]
+                elif transformed.shape[-1] < audio_length:
+                    pad_size = audio_length - transformed.shape[-1]
+                    transformed = F.pad(transformed, (0, pad_size))
+                transformed = transformed.to(audio_input.device)
+                augmented_audio_list.append(transformed)
+
+            augmented_audio = torch.stack(augmented_audio_list)
+            audio_input[labels == 0] = augmented_audio
+
+        # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
+        if audio_input.shape[-1] < cut_length:
+            audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
+        elif audio_input.shape[-1] > cut_length:
+            audio_input = audio_input[:, :cut_length]
 
     if args.evaluate:
         validate(val_loader, model, criterion, args)
@@ -430,7 +525,6 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
             if epoch == args.start_epoch:
                 sanity_check(model.state_dict(), args.pretrained)
 
-
 def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args) -> None:
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
@@ -451,26 +545,30 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
     no gradient), which are part of the model parameters too.
     """
     model.eval()  
-    with torch.no_grad():  
-        for i, batch in enumerate(asvspoof_2019_LA_train_dataloader):
-            print(f"batch {i}: {type(batch)} - length {len(batch)}")
-            break
-            data_time.update(time.time() - end)
+    end = time.time()
+      
+    for i, batch in enumerate(asvspoof_2019_LA_train_dataloader):
+        # measure data loading time
+        data_time.update(time.time() - end)
+        output, ids, target = batch
+        
+        if args.gpu is not None:
+            output = output.cuda(args.gpu, non_blocking=True)
+        target = target.cuda(args.gpu, non_blocking=True)
 
-            output, target = model(x_q=q, x_k=k)
-            loss = criterion(output, target)
+        output, target = model(x_q=q, x_k=k)
+        loss = criterion(output, target)
 
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            losses.update(loss.item(), q.size(0))
-            top1.update(acc1[0], q.size(0))
-            top5.update(acc5[0], q.size(0))
+        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        losses.update(loss.item(), q.size(0))
+        top1.update(acc1[0], q.size(0))
+        top5.update(acc5[0], q.size(0))
 
-            batch_time.update(time.time() - end)
-            end = time.time()
+        batch_time.update(time.time() - end)
+        end = time.time()
 
-            if i % args.print_freq == 0:
-                progress.display(i)
-
+        if i % args.print_freq == 0:
+            progress.display(i)
 
 def validate(asvspoof_2019_LA_downstream_dataloader, model, criterion, args):
     batch_time = AverageMeter("Time", ":6.3f")
@@ -483,22 +581,24 @@ def validate(asvspoof_2019_LA_downstream_dataloader, model, criterion, args):
 
     # switch to evaluate mode
     model.eval()
-
+    
     with torch.no_grad():
         end = time.time()
         for i, batch in enumerate(asvspoof_2019_LA_downstream_dataloader):
             inputs, ids, targets = batch
 
-            print(type(inputs), inputs.shape)
-            print(type(ids), ids)           
-            print(type(targets), targets) 
+            rand_idx = random.randint(0, len(ids) - 1)
+            print(f"[랜덤 샘플 출력 - batch {i}]")
+            print(f"  입력 shape (inputs[{rand_idx}]): {inputs[rand_idx].shape}")
+            print(f"  ID (ids[{rand_idx}]): {ids[rand_idx]}")
+            print(f"  타겟 (targets[{rand_idx}]): {targets[rand_idx]}")
             
             if args.gpu is not None:
                 images = images.cuda(args.gpu, non_blocking=True)
                 target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
-            output = model(images)
+            output, target = model(x_q=q, x_k=k)
             loss = criterion(output, target)
 
             # measure accuracy and record loss
