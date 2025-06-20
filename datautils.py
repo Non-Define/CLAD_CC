@@ -420,7 +420,7 @@ class MoCoAudioDataset(torch.utils.data.Dataset):
 # Evaluation utilities
 # Mainly modified from https://github.com/asvspoof-challenge/2021/blob/main/LA/Baseline-RawNet2/data_utils.py by "Hemlata Tak"
 # Obtain speaker information for SAMO implementation
-def genSpoof_train_list( dir_meta,is_train=False,is_eval=False):
+def genSpoof_train_list( dir_meta, is_train=False, is_eval=False):
     utt2spk = {}
     d_meta = {}
     file_list=[]
