@@ -451,7 +451,7 @@ def genSpoof_train_list( dir_meta,is_train=False,is_eval=False):
 
 def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):
     with open(json_path, 'r') as f:
-        data = json.load(f)  # JSON 전체를 리스트로 읽음
+        data = json.load(f)  
     
     utt2spk = {}
     d_meta = {}
@@ -463,7 +463,6 @@ def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):
             label = item['label']
             method = item['method']
             
-            # speaker info를 method로 임시 할당 (필요하면 다르게 조정 가능)
             utt2spk[key] = method  
             file_list.append(key)
             d_meta[key] = label
@@ -475,7 +474,6 @@ def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):
             file_list.append(key)
         return file_list
     else:
-        # train과 동일하게 처리
         for item in data:
             key = item['name']
             label = item['label']
@@ -494,7 +492,7 @@ def pad(x, max_len=64600):
     padded_x = np.tile(x, (1, num_repeats))[:, :max_len][0]
     return padded_x	
 
-class Dataset_ASVspoof2019_train(Dataset):
+class Dataset_ASVspoof2019(Dataset):
     def __init__(self, list_IDs, labels, utt2spk, base_dir, cut_length=64600):
             '''self.list_IDs	: list of strings (each string: utt key),
                self.labels      : dictionary (key: utt key, value: label integer)'''
