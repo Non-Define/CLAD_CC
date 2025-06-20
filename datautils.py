@@ -448,7 +448,6 @@ def genSpoof_train_list( dir_meta, is_train=False, is_eval=False):
             d_meta[key] = 1 if label == 'bonafide' else 0
         return d_meta,file_list,utt2spk
     
-
 def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):  
     utt2spk = {}
     d_meta = {}
