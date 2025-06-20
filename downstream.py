@@ -182,9 +182,7 @@ parser.add_argument(
 parser.add_argument(
     "--pretrained", default="/home/cnrl/Workspace/ND/checkpoint/checkpoint_0149.pth.tar", type=str, help="path to moco pretrained checkpoint"
 )
-
 best_acc1 = 0
-
 
 def main() -> None:
     args = parser.parse_args()
@@ -566,7 +564,7 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
         
         if args.gpu is not None:
             output = output.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
 
         output, target = model(x_q=q, x_k=k)
         loss = criterion(output, target)
