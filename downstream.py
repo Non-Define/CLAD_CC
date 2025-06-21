@@ -350,12 +350,6 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     cudnn.benchmark = True
 
     # Data loading code
-    traindir = os.path.join(args.data, "flac")
-    valdir = os.path.join(args.data, "flac")
-    normalize = transforms.Normalize(
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-    )
-    
     database_path = config["database_path"]
     cut_length = 64600
     batch_size =12
