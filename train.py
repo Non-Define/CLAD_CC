@@ -18,8 +18,9 @@ import gc
 from tqdm import tqdm
 
 from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019, pad_or_clip_batch
-from model import MoCo_v2
 from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
+from contrastive_loss import InstanceLoss, ClusterLoss
+from model import MoCo_v2
 
 import torch
 import torchaudio
