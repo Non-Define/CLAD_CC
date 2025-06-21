@@ -559,12 +559,12 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
         # measure data loading time
         data_time.update(time.time() - end)
         audio, ids, target = batch
+        audio = audio.squeeze(1)
         
         if args.gpu is not None:
             audio = audio.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
             
-        print("입력 audio shape:", audio.shape)
         output = model(audio)
         loss = criterion(output, target)
 
