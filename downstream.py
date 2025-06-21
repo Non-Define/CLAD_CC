@@ -457,8 +457,9 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         audio_input = audio_input.to(device)
 
         audio_length = audio_input.shape[-1]
-        if (labels == 0).any():
-            spoof_audio = audio_input[labels == 0]
+        mask = (labels != 0) & (labels != 1)
+        if mask.any():
+            spoof_audio = audio_input[mask]
             keys = list(manipulations.keys())
             random.shuffle(keys)
 
@@ -483,7 +484,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
                 augmented_audio_list.append(transformed)
 
             augmented_audio = torch.stack(augmented_audio_list)
-            audio_input[labels == 0] = augmented_audio
+            audio_input[mask] = augmented_audio
 
         # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
         if audio_input.shape[-1] < cut_length:
