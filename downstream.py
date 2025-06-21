@@ -397,7 +397,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         utt2spk=utt2spk
     )
     asvspoof_2019_LA_downstream_dataloader = DataLoader(
-        asvspoof_LA_train_dataset,
+        asvspoof_LA_downstream_dataset,
         batch_size=batch_size,
         shuffle=True,
         drop_last=False,
@@ -582,34 +582,27 @@ def validate(asvspoof_2019_LA_downstream_dataloader, model, criterion, args):
     progress = ProgressMeter(
         len(asvspoof_2019_LA_downstream_dataloader), [batch_time, losses, top1, top5], prefix="Test: "
     )
-
     # switch to evaluate mode
     model.eval()
-    
     with torch.no_grad():
         end = time.time()
         for i, batch in enumerate(asvspoof_2019_LA_downstream_dataloader):
-            inputs, ids, targets = batch
-
-            rand_idx = random.randint(0, len(ids) - 1)
-            print(f"[랜덤 샘플 출력 - batch {i}]")
-            print(f"  입력 shape (inputs[{rand_idx}]): {inputs[rand_idx].shape}")
-            print(f"  ID (ids[{rand_idx}]): {ids[rand_idx]}")
-            print(f"  타겟 (targets[{rand_idx}]): {targets[rand_idx]}")
+            audio, ids, target = batch
+            audio = audio.squeeze(1)
             
             if args.gpu is not None:
-                images = images.cuda(args.gpu, non_blocking=True)
-                target = target.cuda(args.gpu, non_blocking=True)
+                audio = audio.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
-            output, target = model(x_q=q, x_k=k)
+            output = model(audio)
             loss = criterion(output, target)
 
             # measure accuracy and record loss
             acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            losses.update(loss.item(), images.size(0))
-            top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
+            losses.update(loss.item(), audio.size(0))
+            top1.update(acc1[0], audio.size(0))
+            top5.update(acc5[0], audio.size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
