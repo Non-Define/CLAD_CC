@@ -563,7 +563,7 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
         
         if args.gpu is not None:
             audio = audio.cuda(args.gpu, non_blocking=True)
-            target = target.cuda(args.gpu, non_blocking=True)
+        target = target.cuda(args.gpu, non_blocking=True)
             
         output = model(audio)
         loss = criterion(output, target)
@@ -728,7 +728,7 @@ def accuracy(output, target, topk=(1,)):
 
         res = []
         for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
