@@ -683,9 +683,7 @@ def sanity_check(state_dict, pretrained_weights) -> None:
 
         # name in pretrained model
         k_pre = (
-            "module.encoder_q." + k[len("module.") :]
-            if k.startswith("module.")
-            else "module.encoder_q." + k
+            k.replace("module.encoder_q.encoder.", "encoder_q.")
         )
 
         assert (
