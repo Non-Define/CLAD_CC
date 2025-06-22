@@ -268,8 +268,8 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
 
             new_state_dict = {}
             for k in list(state_dict.keys()):
-                if k.startswith("module.encoder_q") and not k.startswith("module.encoder_q.fc"):
-                    new_key = k[len("module.encoder_q."):]
+                if k.startswith("encoder_q") and not k.startswith("encoder_q.fc"):
+                    new_key = k[len("encoder_q."):]
                     new_state_dict[new_key] = state_dict[k]
 
             args.start_epoch = 0
@@ -561,14 +561,14 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
                 {
                     "epoch": epoch + 1,
                     "arch": args.arch,
-                    "state_dict": model.state_dict(),
+                    "state_dict": encoder.state_dict(),
                     "best_acc1": best_acc1,
                     "optimizer": optimizer.state_dict(),
                 },
                 is_best,
             )
             if epoch == args.start_epoch:
-                sanity_check(model.state_dict(), args.pretrained)
+                sanity_check(encoder.state_dict(), args.pretrained)
 
 def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args) -> None:
     batch_time = AverageMeter("Time", ":6.3f")
@@ -682,9 +682,11 @@ def sanity_check(state_dict, pretrained_weights) -> None:
             continue
 
         # name in pretrained model
-        k_pre = (
-            k.replace("module.encoder_q.encoder.", "encoder_q.")
-        )
+        if k.startswith("encoder_q."):
+            k_pre = k  
+        else:
+            k_pre = "encoder_q." + k
+
 
         assert (
             state_dict[k].cpu() == state_dict_pre[k_pre]
