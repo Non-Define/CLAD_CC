@@ -92,9 +92,9 @@ class ClusterLoss(nn.Module):
 '''
 create Length loss of CLAD
 '''  
-class Lengthloss(nn.Module):
+class LengthLoss(nn.Module):
     def __init__(self, batch_size, temperature, margin, device):
-        super(Lengthloss, self).__init__()
+        super(LengthLoss, self).__init__()
         self.batch_size = batch_size
         self.temperature = temperature
         self.margin = margin
