@@ -89,3 +89,24 @@ class ClusterLoss(nn.Module):
         loss /= N
 
         return loss + ne_loss
+'''
+create Length loss of CLAD
+'''  
+class Lengthloss(nn.Module):
+    def __init__(self, batch_size, temperature, margin, device):
+        super(Lengthloss, self).__init__()
+        self.batch_size = batch_size
+        self.temperature = temperature
+        self.margin = margin
+        self.device = device
+        
+    def compute_length_loss(self, q, y):
+        q_norm = torch.norm(q, p=2, dim=1)
+        pos_loss = y * q_norm
+        neg_loss = (1 - y) * torch.relu(self.margin - q_norm)
+        loss = (pos_loss + neg_loss).mean()
+        
+        return loss
+        
+    def forward(self, q, y):
+        return self.compute_length_loss(q, y)
