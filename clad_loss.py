@@ -93,17 +93,18 @@ class ClusterLoss(nn.Module):
 create Length loss of CLAD
 '''  
 class LengthLoss(nn.Module):
-    def __init__(self, batch_size, temperature, margin, device):
+    def __init__(self, batch_size, temperature, margin, weight=1.0, device):
         super(LengthLoss, self).__init__()
         self.batch_size = batch_size
         self.temperature = temperature
         self.margin = margin
+        self.weight = weight
         self.device = device
         
     def compute_length_loss(self, q, y):
         q_norm = torch.norm(q, p=2, dim=1)
-        pos_loss = y * q_norm
-        neg_loss = (1 - y) * torch.relu(self.margin - q_norm)
+        pos_loss = y * self.weight * q_norm
+        neg_loss = (1 - y) * torch.clamp(self.margin - q_norm, min=0)
         loss = (pos_loss + neg_loss).mean()
         
         return loss
