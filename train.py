@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019, pad_or_clip_batch
 from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
-from clad_loss import InstanceLoss, ClusterLoss, LengthLoss
+from clad_loss import LengthLoss
 from model import MoCo_v2
 
 import torch
@@ -244,7 +244,17 @@ def main_worker(gpu, ngpus_per_node, args):
             world_size=args.world_size,
             rank=args.rank,
         )
-
+        
+    database_path = config["database_path"]
+    cut_length = 64600
+    temperature= 0.07
+    batch_size = 12
+    margin = 4
+    weight = 9
+    score_save_path = "./results/scores.txt"
+    augmentations_on_cpu = None
+    augmentations = None
+    
     # data loading code
     # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
     model = MoCo_v2(
@@ -254,7 +264,16 @@ def main_worker(gpu, ngpus_per_node, args):
     ).to(device)
     
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    criterion_ce = nn.CrossEntropyLoss().cuda(args.gpu)
+    criterion_len = LengthLoss(batch_size, temperature, margin, weight, device).cuda()
+     
+    def criterion(output, target):
+        loss_ce = criterion_ce(output, target)
+        q = output
+        y = (target == 1).float() 
+        loss_len = criterion_len(q, y)
+        return 0.5 * loss_ce + 0.5 * loss_len
+    
     optimizer = torch.optim.Adam(
         model.parameters(),
         args.lr,
@@ -283,13 +302,6 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
-    
-    database_path = config["database_path"]
-    cut_length = 64600
-    batch_size =12
-    score_save_path = "./results/scores.txt"
-    augmentations_on_cpu = None
-    augmentations = None
 
     d_label_trn, file_train, utt2spk = genSpoof_train_list(
         dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
