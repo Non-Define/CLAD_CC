@@ -180,7 +180,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--pretrained", default="/home/cnrl/Workspace/ND/checkpoint/checkpoint_0149.pth.tar", type=str, help="path to moco pretrained checkpoint"
+    "--pretrained", default="/home/cnrl/Workspace/ND/checkpoint_train/checkpoint_0149.pth.tar", type=str, help="path to moco pretrained checkpoint"
 )
 best_acc1 = 0
 
@@ -604,7 +604,6 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
             
         output = model(audio)
         loss = criterion(output, target)
-
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), audio.size(0))
         top1.update(acc1[0], audio.size(0))
