@@ -222,7 +222,6 @@ def main() -> None:
         # Simply call main_worker function
         main_worker(args.gpu, ngpus_per_node, args)
 
-
 def main_worker(gpu, ngpus_per_node, args) -> None:
     global best_acc1
     args.gpu = gpu
