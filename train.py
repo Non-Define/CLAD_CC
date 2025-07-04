@@ -303,7 +303,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
     
-    # data loading
+    # data loading code
     d_label_trn, file_train, utt2spk = genSpoof_train_list(
         dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
         is_train=True,
