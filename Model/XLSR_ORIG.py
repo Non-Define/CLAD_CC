@@ -25,10 +25,13 @@ class ConvLayers(nn.Module):
         # 2. Conv2D blocks: apply 3 times
         self.convs = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=(3, 3), padding=(1, 1)),
+            nn.BatchNorm2d(conv_channels),
             nn.ReLU(),
             nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=(3, 3), padding=(1, 1)),
+            nn.BatchNorm2d(conv_channels),
             nn.ReLU(),
             nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=(3, 3), padding=(1, 1)),
+            nn.BatchNorm2d(conv_channels),
             nn.ReLU()
         )
 
@@ -41,7 +44,6 @@ class ConvLayers(nn.Module):
         # Conv2D expects 4D: (B, C, H, W), so add channel dim
         x = x.unsqueeze(1)             # (B, 1, T, 256)
         x = self.convs(x)              # (B, 32, T, 256)
-
         x = x.permute(0, 2, 3, 1)      # (B, T, 256, 32) 
         return x
     
@@ -79,18 +81,45 @@ class SELayer(nn.Module):
         a, b = squeeze_tensor.size()
         output_tensor = torch.mul(input_tensor, fc_out_2.view(a, b, 1, 1))
         return output_tensor
-        
+
 class SERe2blocks(nn.Module):
-    def __init__(self, input_dim=32, conv1_channels=32, conv2_channels=8, scale=4):
-        super(SERe2blocks, self).__init__()
+    def __init__(self, input_dim=32, conv1_channels=32, scale=4, reduction_ratio=2):
+        super().__init__()
+        assert conv1_channels % scale == 0
         self.scale = scale
-        self.conv1 = nn.Conv2d(in_channels=input_dim,
-                               out_channels=conv1_channels,
-                               kernel_size=(1, 1),
-                               padding=(1, 1))
-        self.conv2 = nn.Conv2d(in_channels=input_dim,
-                               out_channels=conv2_channels,
-                               kernel_size=(3, 3),
-                               padding=(1, 1))
-        
-    def forward(self, )
+        self.width = conv1_channels // scale
+
+        self.conv1 = nn.Conv2d(input_dim, conv1_channels, kernel_size=1, bias=False)  
+        self.bn1   = nn.BatchNorm2d(conv1_channels)
+        self.relu  = nn.ReLU(inplace=True)
+
+        self.conv2 = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(self.width, self.width, 3, padding=1, bias=False),
+                nn.BatchNorm2d(self.width),
+                nn.ReLU(inplace=True)
+            ) for _ in range(scale - 1)
+        ])
+        self.conv3 = nn.Conv2d(conv1_channels, input_dim, 1, bias=False)
+        self.bn3   = nn.BatchNorm2d(input_dim)
+        self.se    = SELayer(num_channels=input_dim, reduction_ratio=reduction_ratio)
+
+    def forward(self, x):
+        x = x.permute(0,3,1,2)
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        spl = torch.chunk(out, self.scale, dim=1)
+        y = [spl[0]]
+        for i in range(1, self.scale):
+            yi = self.conv2[i-1](spl[i] + y[i-1])
+            y.append(yi)
+
+        out = torch.cat(y, dim=1)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        out = self.relu(out)
+        out = self.se(out)
+        out = out.permute(0,2,3,1)
+        return out
