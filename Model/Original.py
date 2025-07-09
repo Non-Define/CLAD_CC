@@ -123,3 +123,37 @@ class SERe2blocks(nn.Module):
         out = self.se(out)
         out = out.permute(0,2,3,1)
         return out
+
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.frontend = ConvLayers()  # (B, 201, 256, 32)
+
+        self.encoder = nn.Sequential(
+            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 1
+            nn.Sequential(
+                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
+                SERe2blocks(input_dim=32)              # Block 2 (stride)
+            ),
+            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 3
+            nn.Sequential(
+                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
+                SERe2blocks(input_dim=32)              # Block 4 (stride)
+            ),
+            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 5
+            nn.Sequential(
+                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
+                SERe2blocks(input_dim=32)              # Block 6 (stride)
+            ),
+            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 7
+            nn.Sequential(
+                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
+                SERe2blocks(input_dim=32)              # Block 8 (stride)
+            )
+        )
+
+    def forward(self, x):
+        x = self.frontend(x)  # (B, 201, 256, 32)
+        x = self.encoder(x)   # (B, 201, 16, 32)
+        return x
