@@ -83,24 +83,22 @@ class SELayer(nn.Module):
         return output_tensor
 
 class SERe2blocks(nn.Module):
-    def __init__(self, input_dim=32, conv1_channels=32, scale=4, reduction_ratio=2):
+    def __init__(self, input_dim=32, conv_channels=32, scale=4, reduction_ratio=2):
         super().__init__()
-        assert conv1_channels % scale == 0
+        assert conv_channels % scale == 0
         self.scale = scale
-        self.width = conv1_channels // scale
+        self.width = conv_channels // scale
 
-        self.conv1 = nn.Conv2d(input_dim, conv1_channels, kernel_size=1, bias=False)  
-        self.bn1   = nn.BatchNorm2d(conv1_channels)
+        self.conv1 = nn.Conv2d(input_dim, conv_channels, kernel_size=1, bias=False)  
+        self.bn1   = nn.BatchNorm2d(conv_channels)
         self.relu  = nn.ReLU(inplace=True)
-
-        self.conv2 = nn.ModuleList([
+        self.conv3 = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(self.width, self.width, 3, padding=1, bias=False),
                 nn.BatchNorm2d(self.width),
                 nn.ReLU(inplace=True)
             ) for _ in range(scale - 1)
         ])
-        self.conv3 = nn.Conv2d(conv1_channels, input_dim, 1, bias=False)
         self.bn3   = nn.BatchNorm2d(input_dim)
         self.se    = SELayer(num_channels=input_dim, reduction_ratio=reduction_ratio)
 
@@ -108,52 +106,64 @@ class SERe2blocks(nn.Module):
         x = x.permute(0,3,1,2)
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
 
         spl = torch.chunk(out, self.scale, dim=1)
         y = [spl[0]]
         for i in range(1, self.scale):
-            yi = self.conv2[i-1](spl[i] + y[i-1])
+            yi = self.conv3[i-1](spl[i] + y[i-1])
             y.append(yi)
 
         out = torch.cat(y, dim=1)
-        out = self.conv3(out)
+        out = self.conv1(out)
         out = self.bn3(out)
         out = self.relu(out)
         out = self.se(out)
-        out = out.permute(0,2,3,1)
+        out = out.permute(0,2,3,1)    # (B, T, 256, 32)
         return out
 
+class Permute(nn.Module):
+    def __init__(self, *dims):
+        super().__init__()
+        self.dims = dims
+
+    def forward(self, x):
+        return x.permute(*self.dims)
+    
 class Model(nn.Module):
     def __init__(self):
         super().__init__()
+        self.frontend = ConvLayers()  # (B, 1, 201, 256) → (B, 32, 201, 256)
 
-        self.frontend = ConvLayers()  # (B, 201, 256, 32)
-
-        self.encoder = nn.Sequential(
-            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 1
-            nn.Sequential(
-                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
-                SERe2blocks(input_dim=32)              # Block 2 (stride)
-            ),
-            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 3
-            nn.Sequential(
-                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
-                SERe2blocks(input_dim=32)              # Block 4 (stride)
-            ),
-            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 5
-            nn.Sequential(
-                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
-                SERe2blocks(input_dim=32)              # Block 6 (stride)
-            ),
-            nn.Sequential(SERe2blocks(input_dim=32)),  # Block 7
-            nn.Sequential(
-                nn.AvgPool2d(kernel_size=(1, 2), stride=(1, 2)),
-                SERe2blocks(input_dim=32)              # Block 8 (stride)
+        def pool_block(pool_kernel, pool_stride):
+            return nn.Sequential(
+                Permute(0, 3, 1, 2),  # (B, T, F, C) → (B, C, T, F)
+                nn.AvgPool2d(kernel_size=pool_kernel, stride=pool_stride),
+                Permute(0, 2, 3, 1),  # (B, C, T', F') → (B, T', F', C)
             )
+        self.encoder = nn.Sequential(
+            SERe2blocks(input_dim=32),  # Block 1
+            nn.Sequential(             # Block 2: (201,256) → (100,128)
+                pool_block(pool_kernel=2, pool_stride=2),
+                SERe2blocks(input_dim=32)
+            ),
+            SERe2blocks(input_dim=32),  # Block 3
+            nn.Sequential(             # Block 4: (100,128) → (50,64)
+                pool_block(pool_kernel=2, pool_stride=2),
+                SERe2blocks(input_dim=32)
+            ),
+            SERe2blocks(input_dim=32),  # Block 5
+            nn.Sequential(             # Block 6: (50,64) → (25,32)
+                pool_block(pool_kernel=2, pool_stride=2),
+                SERe2blocks(input_dim=32)
+            ),
+            SERe2blocks(input_dim=32),  # Block 7
+            nn.Sequential(             # Block 8: (25,32) → (25,16)
+                pool_block(pool_kernel=(1, 2), pool_stride=(1, 2)),
+                SERe2blocks(input_dim=32)
+            ),
         )
 
     def forward(self, x):
         x = self.frontend(x)  # (B, 201, 256, 32)
-        x = self.encoder(x)   # (B, 201, 16, 32)
+        x = self.encoder(x)   # (B, 25, 16, 32)
         return x
