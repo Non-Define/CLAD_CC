@@ -120,7 +120,8 @@ class SERe2blocks(nn.Module):
         out = self.se(out)
         out = out.permute(0,2,3,1)    # (B, T, 256, 32)
         return out
-
+#---------------------------------------------------------------------------------------
+# Model
 class Permute(nn.Module):
     def __init__(self, *dims):
         super().__init__()
