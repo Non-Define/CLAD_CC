@@ -121,7 +121,9 @@ class SERe2blocks(nn.Module):
         out = out.permute(0,2,3,1)    # (B, T, 256, 32)
         return out
     
-class 
+class STJ_GAT(nn.Module):
+    def __init__(self,):
+        super().__init__()
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
