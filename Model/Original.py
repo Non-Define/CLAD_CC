@@ -124,6 +124,7 @@ class SERe2blocks(nn.Module):
 class STJ_GAT(nn.Module):
     def __init__(self,):
         super().__init__()
+        self.
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
