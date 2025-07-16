@@ -46,7 +46,8 @@ class ConvLayers(nn.Module):
         x = self.convs(x)              # (B, 32, T, 256)
         x = x.permute(0, 2, 3, 1)      # (B, T, 256, 32) 
         return x
-    
+#-----------------------------------------------------------------------------------------------------
+# SE-Re2blocks
 class SELayer(nn.Module):
     """
     Re-implementation of Squeeze-and-Excitation (SE) block described in:
@@ -120,11 +121,35 @@ class SERe2blocks(nn.Module):
         out = self.se(out)
         out = out.permute(0,2,3,1)    # (B, T, 256, 32)
         return out
+#----------------------------------------------------------------------------------------------------
+# BLDL
+class BiLSTM(nn.Module):
+    def __init__(self, device, input_size, num_layers=2, hidden_size=128):
+        super(BiLSTM, self).__init__()
+        self.device = device
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, 
+                            batch_first=True, bidirectional=True)
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(self.device) 
+        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(self.device)
+        out, _ = self.lstm(x, (h0, c0))  # out shape: (batch, seq_len, hidden_size*2)
+        return out
     
-class STJ_GAT(nn.Module):
-    def __init__(self,):
+class BLDL(nn.Module):
+    def __init__(self):
         super().__init__()
-        self.
+
+    def forward(self, x):
+        """
+        x: Tensor of shape (B, T, F, C) 
+        Expected shape from SE-Re2blocks: (1, 25, 16, 32)
+        """
+        B, T, F, C = x.shape  # (1, 25, 16, 32)
+        x = x.view(B, T, F * C)  # → (1, 25, 512)
+        return x
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
