@@ -124,32 +124,49 @@ class SERe2blocks(nn.Module):
 #----------------------------------------------------------------------------------------------------
 # BLDL
 class BiLSTM(nn.Module):
-    def __init__(self, device, input_size, num_layers=2, hidden_size=128):
+    def __init__(self, input_size, num_layers=2, hidden_size=256):
         super(BiLSTM, self).__init__()
-        self.device = device
+        #self.device = device
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, 
                             batch_first=True, bidirectional=True)
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(self.device) 
-        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(self.device)
+        # device 추가시 여기도 추가해야되는데 h0,c0마지막에 .to(self.device) 라고만 쓰면됨 정확히는 self.hidden_size) 뒤에 
+        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
         out, _ = self.lstm(x, (h0, c0))  # out shape: (batch, seq_len, hidden_size*2)
         return out
     
 class BLDL(nn.Module):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, input_size=512, hidden_size=256, num_layers=2):
+        super(BLDL, self).__init__()
+        #self.device = device
+        # device 사용시 BiLSTM()여기에서 input_size 전에 device, 라고만 추가 
+        # BLDL, BiLSTM init 인자에도 추가해야됨
+        self.bilstm = BiLSTM(input_size=input_size, 
+                             hidden_size=hidden_size, 
+                             num_layers=num_layers)
+        self.gap = nn.AdaptiveAvgPool1d(1)  # (B, hidden*2, T) → (B, hidden*2, 1)
+        self.fc1 = nn.Linear(hidden_size * 2, 1024)  
+        self.fc2 = nn.Linear(1024, 512)  
 
     def forward(self, x):
         """
-        x: Tensor of shape (B, T, F, C) 
-        Expected shape from SE-Re2blocks: (1, 25, 16, 32)
+        x: Tensor of shape (B, T, F, C)  e.g., (1, 25, 16, 32)
         """
-        B, T, F, C = x.shape  # (1, 25, 16, 32)
-        x = x.view(B, T, F * C)  # → (1, 25, 512)
-        return x
+        B, T, F, C = x.shape
+        x_flat = x.view(B, T, F * C)  # (B, T, 512)
+        bilstm_out = self.bilstm(x_flat)  # (B, T, hidden*2)
+        
+        out = bilstm_out + x_flat   # (B, T, 512)
+        out = out.permute(0, 2, 1)  # (B, 512, T)
+        out = self.gap(out)         # (B, 512, 1)
+        out = out.squeeze(-1)       # (B, 512)
+        out = self.fc1(out)         # FC1
+        out = self.fc2(out)         # FC2
+        return out
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
