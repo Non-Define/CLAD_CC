@@ -311,6 +311,43 @@ class GraphPool(nn.Module):
         h = torch.gather(h, 1, idx)
 
         return h
+
+class STJGAT(nn.Module):
+    def __init__(self, in_channels=32):
+        super().__init__()
+        # Mo 
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=1, padding=0)
+        self.activation = nn.SELU(inplace=True)
+        self.bn = nn.BatchNorm2d(in_channels)
+        self.conv2 = nn.Conv2d(in_channels, 1, kernel_size=1, padding=0)  
+        # GAT
+        self.gat = GraphAttentionLayer()
+        # Gpooling
+        self.gpooling = GraphPool()
+
+    def forward(self, x):
+        """
+        x: (B, T, F, C)  — SE-Re2blocks output
+        return:
+        FCatt: (B, F, C)
+        TCatt: (B, T, C)
+        """
+        B, T, F, C = x.shape
+        
+        # M0 = Softmax(conv2d(BN(SeLU(conv2d(x))))
+        x_perm = x.permute(0, 3, 1, 2)  # (B, C, T, F)
+        out = self.conv1(x_perm)
+        out = self.activation(out)
+        out = self.bn(out)
+        out = self.conv2(out)  # (B, 1, T, F)
+        out = out.squeeze(1)   # (B, T, F)
+        
+        M0 = F.softmax(out, dim=1)  # (B, T, F)
+        M0_exp = M0.unsqueeze(-1)  # (B, T, F, 1)
+
+        FCatt = torch.sum(M0_exp * x, dim=1)  # (B, F, C)
+        TCatt = torch.sum(M0_exp * x, dim=2)  # (B, T, C)
+        return FCatt, TCatt
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
