@@ -1,5 +1,9 @@
 # Define Model (XLSR-ORIG)
 # by HH
+import random
+import numpy as np
+from typing import Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,7 +16,7 @@ from transformers import Wav2Vec2Model
 model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m")
 print(model.config)
 '''
-
+#----------------------------------------------------------------------------------------------------
 class ConvLayers(nn.Module):
     def __init__(self, input_dim=1024, proj_dim=256, conv_channels=32):
         super(ConvLayers, self).__init__()
@@ -149,8 +153,8 @@ class BLDL(nn.Module):
                              hidden_size=hidden_size, 
                              num_layers=num_layers)
         self.gap = nn.AdaptiveAvgPool1d(1)  # (B, hidden*2, T) → (B, hidden*2, 1)
-        self.fc1 = nn.Linear(hidden_size * 2, 1024)  
-        self.fc2 = nn.Linear(1024, 512)  
+        self.fc1 = nn.Linear(hidden_size * 2, 128)  
+        self.fc2 = nn.Linear(128, 2)  
 
     def forward(self, x):
         """
@@ -167,6 +171,146 @@ class BLDL(nn.Module):
         out = self.fc1(out)         # FC1
         out = self.fc2(out)         # FC2
         return out
+#----------------------------------------------------------------------------------------------------
+# STJ-GAT
+"""
+AASIST
+Copyright (c) 2021-present NAVER Corp.
+MIT license
+"""
+class GraphAttentionLayer(nn.Module):
+    def __init__(self, in_dim, out_dim, **kwargs):
+        super().__init__()
+
+        # attention map
+        self.att_proj = nn.Linear(in_dim, out_dim)
+        self.att_weight = self._init_new_params(out_dim, 1)
+
+        # project
+        self.proj_with_att = nn.Linear(in_dim, out_dim)
+        self.proj_without_att = nn.Linear(in_dim, out_dim)
+
+        # batch norm
+        self.bn = nn.BatchNorm1d(out_dim)
+
+        # dropout for inputs
+        self.input_drop = nn.Dropout(p=0.2)
+
+        # activate
+        self.act = nn.SELU(inplace=True)
+
+        # temperature
+        self.temp = 1.
+        if "temperature" in kwargs:
+            self.temp = kwargs["temperature"]
+
+    def forward(self, x):
+        '''
+        x   :(#bs, #node, #dim)
+        '''
+        # apply input dropout
+        x = self.input_drop(x)
+
+        # derive attention map
+        att_map = self._derive_att_map(x)
+
+        # projection
+        x = self._project(x, att_map)
+
+        # apply batch norm
+        x = self._apply_BN(x)
+        x = self.act(x)
+        return x
+
+    def _pairwise_mul_nodes(self, x):
+        '''
+        Calculates pairwise multiplication of nodes.
+        - for attention map
+        x           :(#bs, #node, #dim)
+        out_shape   :(#bs, #node, #node, #dim)
+        '''
+
+        nb_nodes = x.size(1)
+        x = x.unsqueeze(2).expand(-1, -1, nb_nodes, -1)
+        x_mirror = x.transpose(1, 2)
+
+        return x * x_mirror
+
+    def _derive_att_map(self, x):
+        '''
+        x           :(#bs, #node, #dim)
+        out_shape   :(#bs, #node, #node, 1)
+        '''
+        att_map = self._pairwise_mul_nodes(x)
+        # size: (#bs, #node, #node, #dim_out)
+        att_map = torch.tanh(self.att_proj(att_map))
+        # size: (#bs, #node, #node, 1)
+        att_map = torch.matmul(att_map, self.att_weight)
+
+        # apply temperature
+        att_map = att_map / self.temp
+
+        att_map = F.softmax(att_map, dim=-2)
+
+        return att_map
+
+    def _project(self, x, att_map):
+        x1 = self.proj_with_att(torch.matmul(att_map.squeeze(-1), x))
+        x2 = self.proj_without_att(x)
+
+        return x1 + x2
+
+    def _apply_BN(self, x):
+        org_size = x.size()
+        x = x.view(-1, org_size[-1])
+        x = self.bn(x)
+        x = x.view(org_size)
+
+        return x
+
+    def _init_new_params(self, *size):
+        out = nn.Parameter(torch.FloatTensor(*size))
+        nn.init.xavier_normal_(out)
+        return out
+    
+class GraphPool(nn.Module):
+    def __init__(self, k: float, in_dim: int, p: Union[float, int]):
+        super().__init__()
+        self.k = k
+        self.sigmoid = nn.Sigmoid()
+        self.proj = nn.Linear(in_dim, 1)
+        self.drop = nn.Dropout(p=p) if p > 0 else nn.Identity()
+        self.in_dim = in_dim
+
+    def forward(self, h):
+        Z = self.drop(h)
+        weights = self.proj(Z)
+        scores = self.sigmoid(weights)
+        new_h = self.top_k_graph(scores, h, self.k)
+
+        return new_h
+
+    def top_k_graph(self, scores, h, k):
+        """
+        args
+        =====
+        scores: attention-based weights (#bs, #node, 1)
+        h: graph data (#bs, #node, #dim)
+        k: ratio of remaining nodes, (float)
+
+        returns
+        =====
+        h: graph pool applied data (#bs, #node', #dim)
+        """
+        _, n_nodes, n_feat = h.size()
+        n_nodes = max(int(n_nodes * k), 1)
+        _, idx = torch.topk(scores, n_nodes, dim=1)
+        idx = idx.expand(-1, -1, n_feat)
+
+        h = h * scores
+        h = torch.gather(h, 1, idx)
+
+        return h
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
