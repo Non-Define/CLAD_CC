@@ -328,6 +328,13 @@ class STJGAT(nn.Module):
         # GPooling for FC and TC
         self.gpool_fc = GraphPool(k=k, in_dim=out_dim, p=dropout)
         self.gpool_tc = GraphPool(k=k, in_dim=out_dim, p=dropout)
+        
+        # Cross-attention weight matrices
+        self.W1 = nn.Linear(out_dim, out_dim, bias=False)
+        self.W2 = nn.Linear(out_dim, out_dim, bias=False)
+        
+        # FC for Classifier
+        self.fc = nn.Linear(out_dim * 2, 2)
 
     def forward(self, x):
         """
@@ -360,7 +367,34 @@ class STJGAT(nn.Module):
         FC_graph = self.gpool_fc(FC_gat)  # (B, F', out_dim)
         TC_graph = self.gpool_tc(TC_gat)  # (B, T', out_dim)
         
-        return FC_graph, TC_graph
+        # Cross Attention
+        # FC_graph: (B, NF, d), TC_graph: (B, NT, d)
+        xF = FC_graph
+        xT = TC_graph
+
+        # 1. W1, W2 projection
+        xF_proj = self.W1(xF)  # (B, NF, d)
+        xT_proj = self.W2(xT)  # (B, NT, d)
+
+        # 2. M1 = softmax(xF_proj @ xT^T)
+        M1 = torch.softmax(torch.matmul(xF_proj, xT.transpose(1, 2)), dim=-1)  # (B, NF, NT)
+
+        # 3. M2 = softmax(xT_proj @ xF^T)
+        M2 = torch.softmax(torch.matmul(xT_proj, xF.transpose(1, 2)), dim=-1)  # (B, NT, NF)
+
+        # 4. Attention-based fusion
+        xF_fused = xF + torch.matmul(M1, xT)  # (B, NF, d)
+        xT_fused = xT + torch.matmul(M2, xF)  # (B, NT, d)
+
+        # 5. Node-wise max pooling 
+        node_F = torch.max(xF_fused, dim=1)[0]  # (B, d)
+        node_T = torch.max(xT_fused, dim=1)[0]  # (B, d)
+
+        # 6. Final output
+        fused_node = torch.cat([node_F, node_T], dim=-1)  # (B, 2d)
+        out = self.fc(fused_node)  # (B, 2) → binary classification
+
+        return out
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
