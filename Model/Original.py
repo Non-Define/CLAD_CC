@@ -313,28 +313,32 @@ class GraphPool(nn.Module):
         return h
 
 class STJGAT(nn.Module):
-    def __init__(self, in_channels=32):
+    def __init__(self, in_channels=32, out_dim=32, k=0.5, dropout=0.2):
         super().__init__()
-        # Mo 
+        # Mo (Attention map)
         self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=1, padding=0)
         self.activation = nn.SELU(inplace=True)
         self.bn = nn.BatchNorm2d(in_channels)
         self.conv2 = nn.Conv2d(in_channels, 1, kernel_size=1, padding=0)  
-        # GAT
-        self.gat = GraphAttentionLayer()
-        # Gpooling
-        self.gpooling = GraphPool()
+
+        # GAT for FC and TC
+        self.gat_fc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
+        self.gat_tc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
+
+        # GPooling for FC and TC
+        self.gpool_fc = GraphPool(k=k, in_dim=out_dim, p=dropout)
+        self.gpool_tc = GraphPool(k=k, in_dim=out_dim, p=dropout)
 
     def forward(self, x):
         """
         x: (B, T, F, C)  — SE-Re2blocks output
         return:
-        FCatt: (B, F, C)
-        TCatt: (B, T, C)
+        FC_graph: (B, F', out_dim)
+        TC_graph: (B, T', out_dim)
         """
-        B, T, F, C = x.shape
+        B, T, F_, C = x.shape
         
-        # M0 = Softmax(conv2d(BN(SeLU(conv2d(x))))
+        # Mo
         x_perm = x.permute(0, 3, 1, 2)  # (B, C, T, F)
         out = self.conv1(x_perm)
         out = self.activation(out)
@@ -347,7 +351,16 @@ class STJGAT(nn.Module):
 
         FCatt = torch.sum(M0_exp * x, dim=1)  # (B, F, C)
         TCatt = torch.sum(M0_exp * x, dim=2)  # (B, T, C)
-        return FCatt, TCatt
+
+        # GAT
+        FC_gat = self.gat_fc(FCatt)  # (B, F, out_dim)
+        TC_gat = self.gat_tc(TCatt)  # (B, T, out_dim)
+
+        # Gpooling
+        FC_graph = self.gpool_fc(FC_gat)  # (B, F', out_dim)
+        TC_graph = self.gpool_tc(TC_gat)  # (B, T', out_dim)
+        
+        return FC_graph, TC_graph
 #---------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
