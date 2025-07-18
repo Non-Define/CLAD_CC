@@ -17,6 +17,7 @@ model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m")
 print(model.config)
 '''
 #----------------------------------------------------------------------------------------------------
+# Conv Layers
 class ConvLayers(nn.Module):
     def __init__(self, input_dim=1024, proj_dim=256, conv_channels=32):
         super(ConvLayers, self).__init__()
@@ -161,7 +162,7 @@ class BLDL(nn.Module):
         x: Tensor of shape (B, T, F, C)  e.g., (1, 25, 16, 32)
         """
         B, T, F, C = x.shape
-        x_flat = x.view(B, T, F * C)  # (B, T, 512)
+        x_flat = x.reshape(B, T, F * C)  # (B, T, 512)
         bilstm_out = self.bilstm(x_flat)  # (B, T, hidden*2)
         
         out = bilstm_out + x_flat   # (B, T, 512)
@@ -408,7 +409,7 @@ class Permute(nn.Module):
 class Model(nn.Module):
     def __init__(self):
         super().__init__()
-        self.frontend = ConvLayers()  # (B, 1, 201, 256) → (B, 32, 201, 256)
+        self.convlayers = ConvLayers()  # (B, 1, 201, 256) → (B, 32, 201, 256)
 
         def pool_block(pool_kernel, pool_stride):
             return nn.Sequential(
@@ -416,7 +417,8 @@ class Model(nn.Module):
                 nn.AvgPool2d(kernel_size=pool_kernel, stride=pool_stride),
                 Permute(0, 2, 3, 1),  # (B, C, T', F') → (B, T', F', C)
             )
-        self.encoder = nn.Sequential(
+            
+        self.SEre2blocks = nn.Sequential(
             SERe2blocks(input_dim=32),  # Block 1
             nn.Sequential(             # Block 2: (201,256) → (100,128)
                 pool_block(pool_kernel=2, pool_stride=2),
@@ -438,8 +440,25 @@ class Model(nn.Module):
                 SERe2blocks(input_dim=32)
             ),
         )
+        
+        self.stjgat = STJGAT(in_channels=32, out_dim=32, k=0.5, dropout=0.2)
+        self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
 
     def forward(self, x):
-        x = self.frontend(x)  # (B, 201, 256, 32)
-        x = self.encoder(x)   # (B, 25, 16, 32)
-        return x
+        x = self.convlayers(x)       # (B, 201, 256, 32)
+        print("ConvLayers output",x.shape)
+        x = self.SEre2blocks(x)      # (B, 25, 16, 32)
+        print("SE-Re2blocks output",x.shape)
+
+        out_stj = self.stjgat(x)     # (B, 2) — logits
+        print("STJ-GAT output",out_stj.shape)
+        out_bldl = self.bldl(x)      # (B, 2) — logits
+        print("BLDL output",out_bldl.shape)
+        
+        '''
+        loss_stj = criterion(out_stj, label)   # weighted CE
+        loss_bldl = criterion(out_bldl, label) # weighted CE
+        final_loss = 0.5 * loss_stj + 0.5 * loss_bldl
+        '''
+        
+        return out_stj, out_bldl
