@@ -1,217 +1,464 @@
+# Define Model (XLSR-ORIG)
+# by HH
+import random
+import numpy as np
+from typing import Union
+
 import torch
-from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
+
 from typing import Callable, Optional, Union
+from transformers import Wav2Vec2Model
 
-# the over all MoCo framework to train the encoder   
-# mlp is the projection head, if mlp is True, then the projection head will be used, otherwise, the projection head will not be used 
-# Normally queue_feature_dim is set as the feature dim output by encoder
-class MoCo_v2(nn.Module):
-    def __init__(self, encoder_q, encoder_k, queue_feature_dim, queue_size=6144, momentum=0.999, temperature=0.07, mlp=False, return_q = False):
-        super(MoCo_v2, self).__init__()
-        self.return_q = return_q
-        # Initialize the momentum coefficient and temperature parameter
-        self.momentum = momentum
-        self.temperature = temperature
-        self.queue_size = queue_size
-        # self.weight_decay = 1e-4  # follow the official implementation
-        self.mlp = mlp
-        self.projection_dim = 128
-        self.encoder_q = encoder_q
-        self.encoder_k = encoder_k
-        # make sure that two encoders have the same params
-        self.encoder_k.load_state_dict(self.encoder_q.state_dict())
-        self.queue_feature_dim = queue_feature_dim
-         
-        if mlp: # if projection head is used
-            self.projection_head_q = nn.Sequential(
-                nn.Linear(queue_feature_dim, queue_feature_dim),
-                nn.ReLU(),
-                nn.Linear(queue_feature_dim, self.projection_dim)
-            )
-            self.projection_head_k = nn.Sequential(
-                nn.Linear(queue_feature_dim, queue_feature_dim),
-                nn.ReLU(),
-                nn.Linear(queue_feature_dim, self.projection_dim)
-            )
-            # make sure that two encoders have the same params
-            self.projection_head_k.load_state_dict(self.projection_head_q.state_dict())
-            self.queue_feature_dim = self.projection_dim
-        # Initialize the queue
-        self.queue = torch.randn(self.queue_size, self.queue_feature_dim)
-        self.queue = F.normalize(self.queue, dim=1)  # the official implementation also normalize the queue, actully they make q and k always a unit vector, so that dot product gives the cosine similarity
-        self.queue_ptr = 0   
+'''
+model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m")
+print(model.config)
+'''
+#----------------------------------------------------------------------------------------------------
+# Conv Layers
+class ConvLayers(nn.Module):
+    def __init__(self, input_dim=1024, proj_dim=256, conv_channels=32):
+        super(ConvLayers, self).__init__()
 
-    def init_queue(self):
-        # Initialize the queue, and make sure the queue is always on the same device with MoCo Module.
-        device = next(self.parameters()).device
-        self.queue = torch.randn(self.queue_size, self.queue_feature_dim, device=device)
-        self.queue = F.normalize(self.queue, dim=1)  # the official implementation also normalize the queue, actully they make q and k always a unit vector, so that dot product gives the cosine similarity
-        self.queue_ptr = 0    
+        # 1. Conv1D projection: (B, T, 1024) → (B, T, 256)
+        self.proj = nn.Conv1d(in_channels=input_dim,
+                              out_channels=proj_dim,
+                              kernel_size=1)
+
+        # 2. Conv2D blocks: apply 3 times
+        self.convs = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=conv_channels, kernel_size=(3, 3), padding=(1, 1)),
+            nn.BatchNorm2d(conv_channels),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=(3, 3), padding=(1, 1)),
+            nn.BatchNorm2d(conv_channels),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=conv_channels, out_channels=conv_channels, kernel_size=(3, 3), padding=(1, 1)),
+            nn.BatchNorm2d(conv_channels),
+            nn.ReLU()
+        )
+
+    def forward(self, x):
+        # x: (B, T, 1024)
+        x = x.transpose(1, 2)          # (B, 1024, T)
+        x = self.proj(x)               # (B, 256, T)
+        x = x.transpose(1, 2)          # (B, T, 256)
+
+        # Conv2D expects 4D: (B, C, H, W), so add channel dim
+        x = x.unsqueeze(1)             # (B, 1, T, 256)
+        x = self.convs(x)              # (B, 32, T, 256)
+        x = x.permute(0, 2, 3, 1)      # (B, T, 256, 32) 
+        return x
+#-----------------------------------------------------------------------------------------------------
+# SE-Re2blocks
+class SELayer(nn.Module):
+    """
+    Re-implementation of Squeeze-and-Excitation (SE) block described in:
+        *Hu et al., Squeeze-and-Excitation Networks, arXiv:1709.01507*
+    """
+    def __init__(self, num_channels, reduction_ratio=2):
+        """
+        :param num_channels: No of input channels
+        :param reduction_ratio: By how much should the num_channels should be reduced
+        """
+        super(SELayer, self).__init__()
+        num_channels_reduced = num_channels // reduction_ratio
+        self.reduction_ratio = reduction_ratio
+        self.fc1 = nn.Linear(num_channels, num_channels_reduced, bias=True)
+        self.fc2 = nn.Linear(num_channels_reduced, num_channels, bias=True)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, input_tensor):
+        """
+        :param input_tensor: X, shape = (batch_size, num_channels, H, W)
+        :return: output tensor
+        """
+        batch_size, num_channels, H, W = input_tensor.size()
+        # Average along each channel
+        squeeze_tensor = input_tensor.view(batch_size, num_channels, -1).mean(dim=2)
+
+        # channel excitation
+        fc_out_1 = self.relu(self.fc1(squeeze_tensor))
+        fc_out_2 = self.sigmoid(self.fc2(fc_out_1))
+
+        a, b = squeeze_tensor.size()
+        output_tensor = torch.mul(input_tensor, fc_out_2.view(a, b, 1, 1))
+        return output_tensor
+
+class SERe2blocks(nn.Module):
+    def __init__(self, input_dim=32, conv_channels=32, scale=4, reduction_ratio=2):
+        super().__init__()
+        assert conv_channels % scale == 0
+        self.scale = scale
+        self.width = conv_channels // scale
+
+        self.conv1 = nn.Conv2d(input_dim, conv_channels, kernel_size=1, bias=False)  
+        self.bn1   = nn.BatchNorm2d(conv_channels)
+        self.relu  = nn.ReLU(inplace=True)
+        self.conv3 = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(self.width, self.width, 3, padding=1, bias=False),
+                nn.BatchNorm2d(self.width),
+                nn.ReLU(inplace=True)
+            ) for _ in range(scale - 1)
+        ])
+        self.bn3   = nn.BatchNorm2d(input_dim)
+        self.se    = SELayer(num_channels=input_dim, reduction_ratio=reduction_ratio)
+
+    def forward(self, x):
+        x = x.permute(0,3,1,2)
+        out = self.conv1(x)
+        out = self.bn1(out)
+
+        spl = torch.chunk(out, self.scale, dim=1)
+        y = [spl[0]]
+        for i in range(1, self.scale):
+            yi = self.conv3[i-1](spl[i] + y[i-1])
+            y.append(yi)
+
+        out = torch.cat(y, dim=1)
+        out = self.conv1(out)
+        out = self.bn3(out)
+        out = self.relu(out)
+        out = self.se(out)
+        out = out.permute(0,2,3,1)    # (B, T, 256, 32)
+        return out
+#----------------------------------------------------------------------------------------------------
+# BLDL
+class BiLSTM(nn.Module):
+    def __init__(self, input_size, num_layers=2, hidden_size=256):
+        super(BiLSTM, self).__init__()
+        #self.device = device
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, 
+                            batch_first=True, bidirectional=True)
+
+    def forward(self, x):
+        # device 추가시 여기도 추가해야되는데 h0,c0마지막에 .to(self.device) 라고만 쓰면됨 정확히는 self.hidden_size) 뒤에 
+        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
+        out, _ = self.lstm(x, (h0, c0))  # out shape: (batch, seq_len, hidden_size*2)
+        return out
     
-    # overriding the to function, so that the queue can be moved to the GPU
-    def to(self, *args, **kwargs):
-        self = super(MoCo_v2, self).to(*args, **kwargs)
-        self.queue = self.queue.to(*args, **kwargs)
-        return self
+class BLDL(nn.Module):
+    def __init__(self, input_size=512, hidden_size=256, num_layers=2):
+        super(BLDL, self).__init__()
+        #self.device = device
+        # device 사용시 BiLSTM()여기에서 input_size 전에 device, 라고만 추가 
+        # BLDL, BiLSTM init 인자에도 추가해야됨
+        self.bilstm = BiLSTM(input_size=input_size, 
+                             hidden_size=hidden_size, 
+                             num_layers=num_layers)
+        self.gap = nn.AdaptiveAvgPool1d(1)  # (B, hidden*2, T) → (B, hidden*2, 1)
+        self.fc1 = nn.Linear(hidden_size * 2, 128)  
+        self.fc2 = nn.Linear(128, 2)  
 
-    @torch.no_grad()    
-    def momentum_update(self):
+    def forward(self, x):
         """
-        Update the key encoder with the momentum encoder
+        x: Tensor of shape (B, T, F, C)  e.g., (1, 25, 16, 32)
         """
-        for param_q, param_k in zip(self.encoder_q.parameters(), self.encoder_k.parameters()):
-            param_k.data = param_k.data * self.momentum + param_q.data * (1. - self.momentum)
-        if self.mlp:
-            for param_q, param_k in zip(self.projection_head_q.parameters(), self.projection_head_k.parameters()):
-                param_k.data = param_k.data * self.momentum + param_q.data * (1. - self.momentum)
+        B, T, F, C = x.shape
+        x_flat = x.reshape(B, T, F * C)  # (B, T, 512)
+        bilstm_out = self.bilstm(x_flat)  # (B, T, hidden*2)
+        
+        out = bilstm_out + x_flat   # (B, T, 512)
+        out = out.permute(0, 2, 1)  # (B, 512, T)
+        out = self.gap(out)         # (B, 512, 1)
+        out = out.squeeze(-1)       # (B, 512)
+        out = self.fc1(out)         # FC1
+        out = self.fc2(out)         # FC2
+        return out
+#----------------------------------------------------------------------------------------------------
+# STJ-GAT
+"""
+AASIST
+Copyright (c) 2021-present NAVER Corp.
+MIT license
+"""
+class GraphAttentionLayer(nn.Module):
+    def __init__(self, in_dim, out_dim, **kwargs):
+        super().__init__()
 
-    @torch.no_grad()        
-    def dequeue_and_enqueue(self, keys):
-        """
-        Dequeue the oldest keys and enqueue the new keys into the queue
-        """
-        batch_size = keys.shape[0]
-        assert self.queue_size % batch_size == 0  # for simplicity
-        
-        # Enqueue the keys into the queue
-        self.queue[self.queue_ptr:self.queue_ptr+batch_size] = keys
-        self.queue_ptr = (self.queue_ptr + batch_size) % self.queue.shape[0]
-        
-    def forward(self, x_q, x_k):
-        """
-        Input:
-            x_q: a batch of query audio
-            x_k: a batch of key audio
-        Output:
-            logits, targets, feature_q(optional)
-        """
-        # At here we follow the official implementation of MoCo v2, https://github.com/facebookresearch/moco/blob/main/moco/builder.py
-        # Encode the input batch with the query encoder
-        q = self.encoder_q(x_q) # queries: NxC
-        
-        if self.mlp:
-            q = self.projection_head_q(q)
-        if self.return_q:
-            q_without_normal = q
-        q = nn.functional.normalize(q, dim=1) 
-        # compute key features
-        with torch.no_grad():
-            # Update the momentum encoder with the current encoder
-            self.momentum_update()            
-            # Encode the input batch with the key encoder
-            k = self.encoder_k(x_k)
-            
-            if self.mlp:
-                k = self.projection_head_k(k)
-            k = nn.functional.normalize(k, dim=1)
-        # compute logits
-        # Einstein sum is more intuitive
-        # positive logits: Nx1
-        l_pos = torch.einsum("nc,nc->n", [q, k]).unsqueeze(-1)
-        # negative logits: NxK
-        l_neg = torch.einsum("nc,ck->nk", [q, self.queue.clone().detach().T])  # here we modified the official implementation, we transpose the queue, since it is KxC, and we want to do dot product with NxC, so we need to transpose the queue  
-            
-        # logits: Nx(1+K)
-        logits = torch.cat([l_pos, l_neg], dim=1)
+        # attention map
+        self.att_proj = nn.Linear(in_dim, out_dim)
+        self.att_weight = self._init_new_params(out_dim, 1)
+
+        # project
+        self.proj_with_att = nn.Linear(in_dim, out_dim)
+        self.proj_without_att = nn.Linear(in_dim, out_dim)
+
+        # batch norm
+        self.bn = nn.BatchNorm1d(out_dim)
+
+        # dropout for inputs
+        self.input_drop = nn.Dropout(p=0.2)
+
+        # activate
+        self.act = nn.SELU(inplace=True)
+
+        # temperature
+        self.temp = 1.
+        if "temperature" in kwargs:
+            self.temp = kwargs["temperature"]
+
+    def forward(self, x):
+        '''
+        x   :(#bs, #node, #dim)
+        '''
+        # apply input dropout
+        x = self.input_drop(x)
+
+        # derive attention map
+        att_map = self._derive_att_map(x)
+
+        # projection
+        x = self._project(x, att_map)
+
+        # apply batch norm
+        x = self._apply_BN(x)
+        x = self.act(x)
+        return x
+
+    def _pairwise_mul_nodes(self, x):
+        '''
+        Calculates pairwise multiplication of nodes.
+        - for attention map
+        x           :(#bs, #node, #dim)
+        out_shape   :(#bs, #node, #node, #dim)
+        '''
+
+        nb_nodes = x.size(1)
+        x = x.unsqueeze(2).expand(-1, -1, nb_nodes, -1)
+        x_mirror = x.transpose(1, 2)
+
+        return x * x_mirror
+
+    def _derive_att_map(self, x):
+        '''
+        x           :(#bs, #node, #dim)
+        out_shape   :(#bs, #node, #node, 1)
+        '''
+        att_map = self._pairwise_mul_nodes(x)
+        # size: (#bs, #node, #node, #dim_out)
+        att_map = torch.tanh(self.att_proj(att_map))
+        # size: (#bs, #node, #node, 1)
+        att_map = torch.matmul(att_map, self.att_weight)
 
         # apply temperature
-        logits /= self.temperature
+        att_map = att_map / self.temp
 
-        # labels: positive key indicators
-        labels = torch.zeros(logits.shape[0], dtype=torch.long)
-        if torch.cuda.is_available():
-            labels = labels.cuda()
+        att_map = F.softmax(att_map, dim=-2)
 
-        # Dequeue the oldest keys and enqueue the new keys
-        self.dequeue_and_enqueue(k)
-        
-        if self.return_q:
-            return logits, labels, q_without_normal
-        else:
-            return logits, labels
+        return att_map
 
-# # print how many parameters the New Transformer Decoder Layer has
-# total_params = sum(
-#     param.numel() for param in TransformerDecoderAggregatorLayer(d_model=last_hidden_state.shape[-1], nhead=8, batch_first=True).parameters()
-# )
-# print(total_params)
+    def _project(self, x, att_map):
+        x1 = self.proj_with_att(torch.matmul(att_map.squeeze(-1), x))
+        x2 = self.proj_without_att(x)
 
-# # print how many parameters the Original Transformer Decoder has
-# total_params = sum(
-#     param.numel() for param in torch.nn.TransformerDecoderLayer(d_model=last_hidden_state.shape[-1], nhead=8, batch_first=True).parameters()
-# )
-# print(total_params)
-# define the encoder which is just a MLP
+        return x1 + x2
 
-class ContrastiveLearningEncoderMLP(nn.Module):
-    # init a wav2vec2 model
-    def __init__(self, wav2vec2_path):
-        super(ContrastiveLearningEncoderMLP, self).__init__()
+    def _apply_BN(self, x):
+        org_size = x.size()
+        x = x.view(-1, org_size[-1])
+        x = self.bn(x)
+        x = x.view(org_size)
 
-        self.fc1 = nn.Linear(64600, 256)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(256, 1024)
-
-        self.feature_dim = 1024  # the final out put will be 1024 dims.
-
-    # define the forward function, the input x should be a batch of audio files, has shape (batch_size, 64600), and the output should have shape (batch_size, 1024)    
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
         return x
 
-# define the downstream classifier used for spoof detection with only 1 linear layer without activation
-class DownStreamLinearClassifier(nn.Module):
-    def __init__(self, encoder, input_depth=1024):
-        super(DownStreamLinearClassifier, self).__init__()
-        self.input_depth = input_depth
-        self.encoder = encoder  # this should be able to encoder the input(batch_size, 64600) into feature vectors(batch_size, input_depth)
-        self.fc = nn.Linear(input_depth, 11)  
-
-    def forward(self, x):
-        x = self.encoder(x)
-        x = self.fc(x)
-        x = x.squeeze(1)
-        return x
-
-# define the downstream classifier used for spoof detection with only 2 linear layer and a relu activation 
-class DownStreamTwoLayerClassifier(nn.Module):
-    def __init__(self, encoder, input_depth=1024):
-        super(DownStreamTwoLayerClassifier, self).__init__()
-        self.encoder = encoder  # this should be able to encoder the input(batch_size, 64600) into feature vectors(batch_size, input_depth)
-        self.input_depth = input_depth
-        self.fc1 = nn.Linear(input_depth, 128) 
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(128, 11)  
-
-    def forward(self, x):
-        x = self.encoder(x)
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = x.squeeze(1)
-        return x
+    def _init_new_params(self, *size):
+        out = nn.Parameter(torch.FloatTensor(*size))
+        nn.init.xavier_normal_(out)
+        return out
     
-# define the downstream classifier used for spoof detection with 3 linear layer and 2 relu activation 
-class DownStreamThreeLayerClassifier(nn.Module):
-    def __init__(self, encoder, input_depth=1024):
-        super(DownStreamThreeLayerClassifier, self).__init__()
-        self.encoder = encoder  # this should be able to encoder the input(batch_size, 64600) into feature vectors(batch_size, input_depth)
-        self.input_depth = input_depth
-        self.fc1 = nn.Linear(input_depth, 128) 
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(128, 64)  
-        self.fc3 = nn.Linear(64, 11)  
+class GraphPool(nn.Module):
+    def __init__(self, k: float, in_dim: int, p: Union[float, int]):
+        super().__init__()
+        self.k = k
+        self.sigmoid = nn.Sigmoid()
+        self.proj = nn.Linear(in_dim, 1)
+        self.drop = nn.Dropout(p=p) if p > 0 else nn.Identity()
+        self.in_dim = in_dim
+
+    def forward(self, h):
+        Z = self.drop(h)
+        weights = self.proj(Z)
+        scores = self.sigmoid(weights)
+        new_h = self.top_k_graph(scores, h, self.k)
+
+        return new_h
+
+    def top_k_graph(self, scores, h, k):
+        """
+        args
+        =====
+        scores: attention-based weights (#bs, #node, 1)
+        h: graph data (#bs, #node, #dim)
+        k: ratio of remaining nodes, (float)
+
+        returns
+        =====
+        h: graph pool applied data (#bs, #node', #dim)
+        """
+        _, n_nodes, n_feat = h.size()
+        n_nodes = max(int(n_nodes * k), 1)
+        _, idx = torch.topk(scores, n_nodes, dim=1)
+        idx = idx.expand(-1, -1, n_feat)
+
+        h = h * scores
+        h = torch.gather(h, 1, idx)
+
+        return h
+
+class STJGAT(nn.Module):
+    def __init__(self, in_channels=32, out_dim=32, k=0.5, dropout=0.2):
+        super().__init__()
+        # Mo (Attention map)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=1, padding=0)
+        self.activation = nn.SELU(inplace=True)
+        self.bn = nn.BatchNorm2d(in_channels)
+        self.conv2 = nn.Conv2d(in_channels, 1, kernel_size=1, padding=0)  
+
+        # GAT for FC and TC
+        self.gat_fc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
+        self.gat_tc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
+
+        # GPooling for FC and TC
+        self.gpool_fc = GraphPool(k=k, in_dim=out_dim, p=dropout)
+        self.gpool_tc = GraphPool(k=k, in_dim=out_dim, p=dropout)
+        
+        # Cross-attention weight matrices
+        self.W1 = nn.Linear(out_dim, out_dim, bias=False)
+        self.W2 = nn.Linear(out_dim, out_dim, bias=False)
+        
+        # FC for Classifier
+        self.fc = nn.Linear(out_dim * 2, 2)
 
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.relu(x)
-        x = self.fc3(x)
-        x = x.squeeze(1)
-        return x
+        """
+        x: (B, T, F, C)  — SE-Re2blocks output
+        return:
+        FC_graph: (B, F', out_dim)
+        TC_graph: (B, T', out_dim)
+        """
+        B, T, F_, C = x.shape
+        
+        # Mo
+        x_perm = x.permute(0, 3, 1, 2)  # (B, C, T, F)
+        out = self.conv1(x_perm)
+        out = self.activation(out)
+        out = self.bn(out)
+        out = self.conv2(out)  # (B, 1, T, F)
+        out = out.squeeze(1)   # (B, T, F)
+        
+        M0 = F.softmax(out, dim=1)  # (B, T, F)
+        M0_exp = M0.unsqueeze(-1)  # (B, T, F, 1)
+
+        FCatt = torch.sum(M0_exp * x, dim=1)  # (B, F, C)
+        TCatt = torch.sum(M0_exp * x, dim=2)  # (B, T, C)
+
+        # GAT
+        FC_gat = self.gat_fc(FCatt)  # (B, F, out_dim)
+        TC_gat = self.gat_tc(TCatt)  # (B, T, out_dim)
+
+        # Gpooling
+        FC_graph = self.gpool_fc(FC_gat)  # (B, F', out_dim)
+        TC_graph = self.gpool_tc(TC_gat)  # (B, T', out_dim)
+        
+        # Cross Attention
+        # FC_graph: (B, NF, d), TC_graph: (B, NT, d)
+        xF = FC_graph
+        xT = TC_graph
+
+        # 1. W1, W2 projection
+        xF_proj = self.W1(xF)  # (B, NF, d)
+        xT_proj = self.W2(xT)  # (B, NT, d)
+
+        # 2. M1 = softmax(xF_proj @ xT^T)
+        M1 = torch.softmax(torch.matmul(xF_proj, xT.transpose(1, 2)), dim=-1)  # (B, NF, NT)
+
+        # 3. M2 = softmax(xT_proj @ xF^T)
+        M2 = torch.softmax(torch.matmul(xT_proj, xF.transpose(1, 2)), dim=-1)  # (B, NT, NF)
+
+        # 4. Attention-based fusion
+        xF_fused = xF + torch.matmul(M1, xT)  # (B, NF, d)
+        xT_fused = xT + torch.matmul(M2, xF)  # (B, NT, d)
+
+        # 5. Node-wise max pooling 
+        node_F = torch.max(xF_fused, dim=1)[0]  # (B, d)
+        node_T = torch.max(xT_fused, dim=1)[0]  # (B, d)
+
+        # 6. Final output
+        fused_node = torch.cat([node_F, node_T], dim=-1)  # (B, 2d)
+        out = self.fc(fused_node)  # (B, 2) → binary classification
+
+        return out
+#---------------------------------------------------------------------------------------
+# Model
+class Permute(nn.Module):
+    def __init__(self, *dims):
+        super().__init__()
+        self.dims = dims
+
+    def forward(self, x):
+        return x.permute(*self.dims)
+    
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.convlayers = ConvLayers()  # (B, 1, 201, 256) → (B, 32, 201, 256)
+
+        def pool_block(pool_kernel, pool_stride):
+            return nn.Sequential(
+                Permute(0, 3, 1, 2),  # (B, T, F, C) → (B, C, T, F)
+                nn.AvgPool2d(kernel_size=pool_kernel, stride=pool_stride),
+                Permute(0, 2, 3, 1),  # (B, C, T', F') → (B, T', F', C)
+            )
+            
+        self.SEre2blocks = nn.Sequential(
+            SERe2blocks(input_dim=32),  # Block 1
+            nn.Sequential(             # Block 2: (201,256) → (100,128)
+                pool_block(pool_kernel=2, pool_stride=2),
+                SERe2blocks(input_dim=32)
+            ),
+            SERe2blocks(input_dim=32),  # Block 3
+            nn.Sequential(             # Block 4: (100,128) → (50,64)
+                pool_block(pool_kernel=2, pool_stride=2),
+                SERe2blocks(input_dim=32)
+            ),
+            SERe2blocks(input_dim=32),  # Block 5
+            nn.Sequential(             # Block 6: (50,64) → (25,32)
+                pool_block(pool_kernel=2, pool_stride=2),
+                SERe2blocks(input_dim=32)
+            ),
+            SERe2blocks(input_dim=32),  # Block 7
+            nn.Sequential(             # Block 8: (25,32) → (25,16)
+                pool_block(pool_kernel=(1, 2), pool_stride=(1, 2)),
+                SERe2blocks(input_dim=32)
+            ),
+        )
+        
+        self.stjgat = STJGAT(in_channels=32, out_dim=32, k=0.5, dropout=0.2)
+        self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
+
+    def forward(self, x):
+        x = self.convlayers(x)       # (B, 201, 256, 32)
+        print("ConvLayers output",x.shape)
+        x = self.SEre2blocks(x)      # (B, 25, 16, 32)
+        print("SE-Re2blocks output",x.shape)
+
+        out_stj = self.stjgat(x)     # (B, 2) — logits
+        print("STJ-GAT output",out_stj.shape)
+        out_bldl = self.bldl(x)      # (B, 2) — logits
+        print("BLDL output",out_bldl.shape)
+        
+        '''
+        loss_stj = criterion(out_stj, label)   # weighted CE
+        loss_bldl = criterion(out_bldl, label) # weighted CE
+        final_loss = 0.5 * loss_stj + 0.5 * loss_bldl
+        '''
+        
+        return out_stj, out_bldl
