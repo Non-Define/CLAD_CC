@@ -335,7 +335,40 @@ class TimeShift(nn.Module):
             min_shift = self.min_shift
         shift_len = random.randint(min_shift, max_shift)
         return self.time_shift(audio, shift_len)
+'''
+This code was referenced from
+Temporal Variability and Multi-Viewed Self-Supervised Representations to Tackle the ASVspoof5 Deepfake Challenge.
+(Algorithm 1)
+'''
+class FreqMask(torch.nn.Module):
+    def __init__(self, sample_rate=16000, n_fft=512, hop_length=128, cutoff_choices=[4000, 5000, 6000, 7000]):
+        super().__init__()
+        self.sample_rate = sample_rate
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.cutoff_choices = cutoff_choices
 
+    def forward(self, waveform):
+        if waveform.dim() == 1:
+            waveform = waveform.unsqueeze(0)
+        stft = torch.stft(
+            waveform,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            return_complex=True
+        )
+        freqs = np.fft.rfftfreq(self.n_fft, d=1.0 / self.sample_rate)
+        cutoff = random.choice(self.cutoff_choices)
+        high_freq_indices = np.where(freqs > cutoff)[0]
+        stft[:, high_freq_indices, :] = 0
+        augmented_waveform = torch.istft(
+            stft,
+            n_fft=self.n_fft,
+            hop_length=self.hop_length,
+            length=waveform.shape[-1]
+        )
+        return augmented_waveform.squeeze(0)
+    
 class AddZeroPadding(nn.Module):
     def __init__(self, max_left_len, min_left_len, max_right_len, min_right_len):
         super(AddZeroPadding, self).__init__()
