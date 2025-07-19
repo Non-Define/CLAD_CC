@@ -446,19 +446,12 @@ class Model(nn.Module):
 
     def forward(self, x):
         x = self.convlayers(x)       # (B, 201, 256, 32)
-        print("ConvLayers output",x.shape)
         x = self.SEre2blocks(x)      # (B, 25, 16, 32)
-        print("SE-Re2blocks output",x.shape)
-
         out_stj = self.stjgat(x)     # (B, 2) — logits
-        print("STJ-GAT output",out_stj.shape)
         out_bldl = self.bldl(x)      # (B, 2) — logits
-        print("BLDL output",out_bldl.shape)
-        
         '''
         loss_stj = criterion(out_stj, label)   # weighted CE
         loss_bldl = criterion(out_bldl, label) # weighted CE
         final_loss = 0.5 * loss_stj + 0.5 * loss_bldl
-        '''
-        
+        ''' 
         return out_stj, out_bldl
