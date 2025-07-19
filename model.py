@@ -131,28 +131,24 @@ class SERe2blocks(nn.Module):
 class BiLSTM(nn.Module):
     def __init__(self, input_size, num_layers=2, hidden_size=256):
         super(BiLSTM, self).__init__()
-        #self.device = device
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, 
                             batch_first=True, bidirectional=True)
 
     def forward(self, x):
-        # device 추가시 여기도 추가해야되는데 h0,c0마지막에 .to(self.device) 라고만 쓰면됨 정확히는 self.hidden_size) 뒤에 
-        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
-        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size)
+        h0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers * 2, x.size(0), self.hidden_size).to(x.device)
         out, _ = self.lstm(x, (h0, c0))  # out shape: (batch, seq_len, hidden_size*2)
         return out
     
 class BLDL(nn.Module):
     def __init__(self, input_size=512, hidden_size=256, num_layers=2):
         super(BLDL, self).__init__()
-        #self.device = device
-        # device 사용시 BiLSTM()여기에서 input_size 전에 device, 라고만 추가 
-        # BLDL, BiLSTM init 인자에도 추가해야됨
-        self.bilstm = BiLSTM(input_size=input_size, 
-                             hidden_size=hidden_size, 
-                             num_layers=num_layers)
+        self.bilstm = BiLSTM(
+                            input_size=input_size, 
+                            hidden_size=hidden_size, 
+                            num_layers=num_layers)
         self.gap = nn.AdaptiveAvgPool1d(1)  # (B, hidden*2, T) → (B, hidden*2, 1)
         self.fc1 = nn.Linear(hidden_size * 2, 128)  
         self.fc2 = nn.Linear(128, 2)  
