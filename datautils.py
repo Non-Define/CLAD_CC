@@ -166,7 +166,7 @@ class CodecApply(nn.Module):
         return self.codec_apply(audio, codec)
 
 class AddEnvironmentalNoise(nn.Module):
-    def __init__(self, max_snr_db, min_snr_db, noise_dataset_path, device=None, noise_path=None, noise_category=None, audio_len=64600, add_before_audio_len = None, sample_rate=16000):
+    def __init__(self, max_snr_db, min_snr_db, env_noise_dataset_path, device=None, noise_path=None, noise_category=None, audio_len=64600, add_before_audio_len = None, sample_rate=16000):
         super(AddEnvironmentalNoise, self).__init__()
         self.noise_path = noise_path
         self.max_snr_db = max_snr_db
@@ -186,7 +186,7 @@ class AddEnvironmentalNoise(nn.Module):
             "clock_tick": "5-209833-A-38.wav",
             "sneezing": "4-167642-A-21.wav"
         }
-        self.noise_dataset_path = noise_dataset_path
+        self.env_noise_dataset_path = env_noise_dataset_path
         # if the noise_path is given, just load the noise and calculate power
         # elif the noise_category is given, get the noise_path from noise_filename_dict and load the noise and calculate power
         # else(the training strategy) randomly choose a noise category and load the noise and calculate power
@@ -195,12 +195,12 @@ class AddEnvironmentalNoise(nn.Module):
                 # preload the noise, noise tensor power for each category and store them in a dict
                 self.noise_dict = {}
                 for noise_category in self.noise_filename_dict.keys():
-                    noise_path = os.path.join(self.noise_dataset_path, self.noise_filename_dict[noise_category])
+                    noise_path = os.path.join(self.env_noise_dataset_path, self.noise_filename_dict[noise_category])
                     noise_tensor, noise_tensor_power = self.load_noise_and_power(noise_path)
                     self.noise_dict[noise_category] = (noise_tensor, noise_tensor_power)
                 self.noise_tensor = None
             else:
-                self.noise_path = os.path.join(self.noise_dataset_path, self.noise_filename_dict[self.noise_category])
+                self.noise_path = os.path.join(self.env_noise_dataset_path, self.noise_filename_dict[self.noise_category])
                 self.noise_tensor, self.noise_tensor_power = self.load_noise_and_power(self.noise_path)
         else:
             self.noise_tensor, self.noise_tensor_power = self.load_noise_and_power(self.noise_path)
