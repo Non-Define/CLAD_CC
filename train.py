@@ -17,10 +17,9 @@ import copy
 import gc
 from tqdm import tqdm
 
-from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019, pad_or_clip_batch
-from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
-from clad_loss import LengthLoss
-from model import MoCo_v2
+from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019, pad_or_clip_batch
+from model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
+from transformers import Wav2Vec2Model
 
 import torch
 import torchaudio
@@ -47,17 +46,6 @@ torch.cuda.set_device(gpu)
 with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
     config = json.load(f_json)
 
-def load_model(config: dict):
-    aasist_config_path = config['aasist_config_path']
-    with open(aasist_config_path, "r") as f_json:
-        aasist_config = json.load(f_json)
-    
-    return aasist_config["model_config"]
-
-d_args = load_model(config)
-encoder = AasistEncoder(d_args=d_args)
-
-model_names = ["aasist_encoder"]
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
 parser.add_argument(
     "-j",
@@ -109,6 +97,7 @@ parser.add_argument(
 parser.add_argument(
     "--momentum", default=0.9, type=float, metavar="M", help="momentum of SGD solver"
 )
+parser.add_argument('--cos', action='store_true', help='Use cosine annealing learning rate')
 parser.add_argument(
     "--wd",
     "--weight-decay",
@@ -133,6 +122,7 @@ parser.add_argument(
     metavar="PATH",
     help="path to latest checkpoint (default: none)",
 )
+# Distributed Learning
 parser.add_argument(
     "--world-size",
     default=-1,
@@ -163,33 +153,6 @@ parser.add_argument(
     "fastest way to use PyTorch for either single node or "
     "multi node data parallel training",
 )
-
-# moco specific configs:
-parser.add_argument(
-    "--moco-dim", default=128, type=int, help="feature dimension (default: 128)"
-)
-parser.add_argument(
-    "--moco-k",
-    default=6144,
-    type=int,
-    help="queue size; number of negative keys (default: 65536)",
-)
-parser.add_argument(
-    "--moco-m",
-    default=0.999,
-    type=float,
-    help="moco momentum of updating key encoder (default: 0.999)",
-)
-parser.add_argument(
-    "--moco-t", default=0.07, type=float, help="softmax temperature (default: 0.07)"
-)
-
-# options for MoCo_v2
-parser.add_argument("--mlp", action="store_true", help="use mlp head")
-parser.add_argument(
-    "--aug-plus", action="store_true", help="use moco v2 data manipulations"
-)
-parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
 
 def main() -> None:
     args = parser.parse_args()
@@ -247,35 +210,20 @@ def main_worker(gpu, ngpus_per_node, args):
         
     database_path = config["database_path"]
     cut_length = 64600
-    temperature= 0.07
     batch_size = 12
-    margin = 4
-    weight = 9
     score_save_path = "./results/scores.txt"
     augmentations_on_cpu = None
     augmentations = None
     
-    # data loading code
-    # Define MoCo_v2 model (assuming 'MoCo_v2' is already implemented)
-    model = MoCo_v2(
-        encoder_q=encoder,
-        encoder_k=encoder,
-        queue_feature_dim=encoder.last_hidden
-    ).to(device)
+    # Define XLSR, SE-Re2blocks + STJ-GAT + BLDL
+    model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m").to(device)
+    encoder = Model().to(device)
     
     # define loss function (criterion) and optimizer
-    criterion_ce = nn.CrossEntropyLoss().cuda(args.gpu)
-    criterion_len = LengthLoss(batch_size, temperature, margin, weight, device).cuda()
-     
-    def criterion(output, target):
-        loss_ce = criterion_ce(output, target)
-        q = output
-        y = (target == 1).float() 
-        loss_len = criterion_len(q, y)
-        return 0.5 * loss_ce + 0.5 * loss_len
+    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
     
     optimizer = torch.optim.Adam(
-        model.parameters(),
+        list(model.parameters()) + list(encoder.parameters()),
         args.lr,
         weight_decay=args.weight_decay,
     )
@@ -302,6 +250,7 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
+    
     # data loading code
     d_label_trn, file_train, utt2spk = genSpoof_train_list(
         dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
@@ -326,11 +275,11 @@ def main_worker(gpu, ngpus_per_node, args):
         pin_memory=True
     )
     
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"num of parameter: {total_params:,}개")
+    total_params_model = sum(p.numel() for p in model.parameters())
+    total_params_encoder = sum(p.numel() for p in encoder.parameters())
+    print(f"Wav2Vec2: {total_params_model:,} parameters | Encoder: {total_params_encoder:,} parameters | Total: {total_params_model + total_params_encoder:,} parameters")
     
-    # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-    noise_dataset_path = config["noise_dataset_path"]
+    env_noise_dataset_path = config["env_noise_dataset_path"]
     manipulations = {
         "no_augmentation": None,
         "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
@@ -338,13 +287,13 @@ def main_worker(gpu, ngpus_per_node, args):
         "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
         "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
         "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", noise_dataset_path=noise_dataset_path),
-        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", noise_dataset_path=noise_dataset_path),
-        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", noise_dataset_path=noise_dataset_path),
-        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", noise_dataset_path=noise_dataset_path),
-        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", env_noise_dataset_path=env_noise_dataset_path),
         "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
         "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
         "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
@@ -372,63 +321,15 @@ def main_worker(gpu, ngpus_per_node, args):
         "resample_17000": ResampleAugmentation([17000]),
     }
     
-    q_list = []
-    k_list = []
+    selected_manipulation_key = "white_noise_20"
+    selected_transform = manipulations[selected_manipulation_key]
     
-    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
-        # audio_input = torch.squeeze(audio_input)
-        audio_input = audio_input.squeeze(1)
-        
-        if augmentations_on_cpu != None:
-            audio_input = augmentations_on_cpu(audio_input)
-        audio_input = audio_input.to(device)
-
-        audio_length = audio_input.shape[-1]
-        if (labels == 0).any():
-            spoof_audio = audio_input[labels == 0]
-            keys = list(manipulations.keys())
-            random.shuffle(keys)
-
-            batch_size = spoof_audio.size(0)
-            augmented_audio_list = []
-
-            for i in range(batch_size):
-                key = keys[i % len(keys)]
-                transform = manipulations[key]
-
-                if transform is None:
-                    transformed = spoof_audio[i]
-                else:
-                    transformed = transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
-                if transformed.shape[-1] > audio_length:
-                    transformed = transformed[..., :audio_length]
-                elif transformed.shape[-1] < audio_length:
-                    pad_size = audio_length - transformed.shape[-1]
-                    transformed = F.pad(transformed, (0, pad_size))
-                transformed = transformed.to(audio_input.device)
-                augmented_audio_list.append(transformed)
-
-            augmented_audio = torch.stack(augmented_audio_list)
-            audio_input[labels == 0] = augmented_audio
-
-        # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
-        if audio_input.shape[-1] < cut_length:
-            audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
-        elif audio_input.shape[-1] > cut_length:
-            audio_input = audio_input[:, :cut_length]
-            
-        q = audio_input
-        k = audio_input.clone()  
-        q_list.append(q)
-        k_list.append(k)
-
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
-        
-        # train for one epoch
-        train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args, q_list, k_list)
+
+        train(asvspoof_2019_LA_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform)
 
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
@@ -444,48 +345,80 @@ def main_worker(gpu, ngpus_per_node, args):
                 filename="checkpoint_{:04d}.pth.tar".format(epoch),
             )
 
-def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args, q_list, k_list):
+def train(asvspoof_2019_LA_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
-    top1 = AverageMeter("Acc@1", ":6.2f")
-    top5 = AverageMeter("Acc@5", ":6.2f")
     progress = ProgressMeter(
         len(asvspoof_2019_LA_train_dataloader),
-        [batch_time, data_time, losses, top1, top5],
+        [batch_time, data_time, losses],
         prefix="Epoch: [{}]".format(epoch),
     )
-
-    # switch to train mode
-    model.train()
+    model.eval()
+    encoder.train()
     end = time.time()
-    batch_out = list(zip(q_list, k_list))
-    for i, (q, k) in enumerate(batch_out):
-        # measure data loading time
+    
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
         data_time.update(time.time() - end)
+        audio_input = audio_input.squeeze(1).to(device)
+        labels = labels.to(audio_input.device)
 
-        # compute output
-        output, target = model(x_q=q, x_k=k)
-        loss = criterion(output, target)
+        if augmentations_on_cpu is not None:
+            audio_input = augmentations_on_cpu(audio_input)
+        audio_input = audio_input.to(device)
 
-        # acc1/acc5 are (K+1)-way contrast classifier accuracy
-        # measure accuracy and record loss
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        losses.update(loss.item(), q.size(0))
-        top1.update(acc1[0], q.size(0))
-        top5.update(acc5[0], q.size(0))
+        audio_length = audio_input.shape[-1]
+        # Spoof audio augmentation
+        if (labels == 0).any():
+            spoof_audio = audio_input[labels == 0]
+            batch_size = spoof_audio.size(0)
+            augmented_audio_list = []
 
-        # compute gradient and do SGD step
+            for i in range(batch_size):
+                if selected_transform is None:
+                    transformed = spoof_audio[i]
+                else:
+                    transformed = selected_transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
+
+                if transformed.shape[-1] > audio_length:
+                    transformed = transformed[..., :audio_length]
+                elif transformed.shape[-1] < audio_length:
+                    pad_size = audio_length - transformed.shape[-1]
+                    transformed = F.pad(transformed, (0, pad_size))
+
+                transformed = transformed.to(audio_input.device)
+                augmented_audio_list.append(transformed)
+
+            augmented_audio = torch.stack(augmented_audio_list)
+            audio_input[labels == 0] = augmented_audio
+
+        # check the length of the audio, if it is not the same as the cut_length, then repeat or clip it to the same length
+        if audio_input.shape[-1] < cut_length:
+            audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
+        elif audio_input.shape[-1] > cut_length:
+            audio_input = audio_input[:, :cut_length]
+
+        # Forward
+        with torch.no_grad():
+            outputs = model(audio_input)
+            xlsr_features = outputs.last_hidden_state
+        out_stj, out_bldl = encoder(xlsr_features)
+
+        loss_stj = criterion(out_stj, labels)
+        loss_bldl = criterion(out_bldl, labels)
+        final_loss = 0.5 * loss_stj + 0.5 * loss_bldl
+
+        # Backward & Optimize
         optimizer.zero_grad()
-        loss.backward()
+        final_loss.backward()
         optimizer.step()
 
-        # measure elapsed time
+        losses.update(final_loss.item(), audio_input.size(0))
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0:
-            progress.display(i)
+        if batch_idx % args.print_freq == 0:
+            progress.display(batch_idx)
 
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     torch.save(state, filename)
