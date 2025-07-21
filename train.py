@@ -338,7 +338,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 {
                     "epoch": epoch + 1,
                     "arch": args.arch,
-                    "state_dict": model.state_dict(),
+                    "xlsr_state_dict": model.state_dict(),
+                    "encoder_state_dict": encoder.state_dict(),
                     "optimizer": optimizer.state_dict(),
                 },
                 is_best=False,
