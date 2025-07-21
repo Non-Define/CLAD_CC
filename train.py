@@ -308,6 +308,8 @@ def main_worker(gpu, ngpus_per_node, args):
         "time_shift_1600": TimeShift(max_shift=1600, min_shift=1600),
         "time_shift_16000": TimeShift(max_shift=16000, min_shift=16000),
         "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
+        "freq_mask_03": FreqMask(prob=0.3),
+        "freq_mask_05": FreqMask(prob=0.5),
         "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
         "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
         "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
