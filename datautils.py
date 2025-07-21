@@ -341,16 +341,22 @@ Temporal Variability and Multi-Viewed Self-Supervised Representations to Tackle 
 (Algorithm 1)
 '''
 class FreqMask(torch.nn.Module):
-    def __init__(self, sample_rate=16000, n_fft=512, hop_length=128, cutoff_choices=[4000, 5000, 6000, 7000]):
+    def __init__(self, sample_rate=16000, n_fft=512, hop_length=128,
+                 cutoff_choices=[4000, 5000, 6000, 7000], prob=1.0):
         super().__init__()
         self.sample_rate = sample_rate
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.cutoff_choices = cutoff_choices
+        self.prob = prob  # 적용 확률
 
     def forward(self, waveform):
+        if random.random() > self.prob:
+            return waveform  # 확률보다 크면 그대로 반환
+
         if waveform.dim() == 1:
             waveform = waveform.unsqueeze(0)
+
         stft = torch.stft(
             waveform,
             n_fft=self.n_fft,
@@ -361,6 +367,7 @@ class FreqMask(torch.nn.Module):
         cutoff = random.choice(self.cutoff_choices)
         high_freq_indices = np.where(freqs > cutoff)[0]
         stft[:, high_freq_indices, :] = 0
+
         augmented_waveform = torch.istft(
             stft,
             n_fft=self.n_fft,
