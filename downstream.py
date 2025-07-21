@@ -31,9 +31,9 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
 
-from aasist import GraphAttentionLayer, HtrgGraphAttentionLayer, GraphPool, CONV, Residual_block, AasistEncoder
-from model import DownStreamLinearClassifier
-from datautils import  genSpoof_downstream_list, Dataset_ASVspoof2019, pad_or_clip_batch, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, AddZeroPadding
+from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019, pad_or_clip_batch
+from model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
+from transformers import Wav2Vec2Model
 #-----------------------------------------------------------------------------------------------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
@@ -45,32 +45,15 @@ torch.cuda.set_device(gpu)
 with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
     config = json.load(f_json)
 
-def load_model(config: dict):
-    aasist_config_path = config['aasist_config_path']
-    with open(aasist_config_path, "r") as f_json:
-        aasist_config = json.load(f_json)
-    
-    return aasist_config["model_config"]
-
-d_args = load_model(config)
-encoder = AasistEncoder(d_args=d_args)
-
-model_names = ["aasist_encoder"]
-model_names = sorted(
-    name
-    for name in models.__dict__
-    if not name.startswith("__") and callable(models.__dict__[name])
-)
-
-parser = argparse.ArgumentParser(description="PyTorch Aasist Training")
+parser = argparse.ArgumentParser(description="PyTorch Validation")
 parser.add_argument("data", metavar="DIR", nargs="?", default="/home/cnrl/Workspace/ND", help="path to dataset")
 parser.add_argument(
     "-a",
     "--arch",
     metavar="ARCH",
-    default="aasist",
+    default="dual branch",
     choices=model_names,
-    help="model architecture: " + " | ".join(model_names) + " (default: aasist)",
+    help="model architecture: " + " | ".join(model_names) + " (default: dual branch)",
 )
 parser.add_argument(
     "-j",
@@ -93,10 +76,10 @@ parser.add_argument(
 parser.add_argument(
     "-b",
     "--batch-size",
-    default=256,
+    default=12,
     type=int,
     metavar="N",
-    help="mini-batch size (default: 256), this is the total "
+    help="mini-batch size (default: 12), this is the total "
     "batch size of all GPUs on the current node when "
     "using Data Parallel or Distributed Data Parallel",
 )
@@ -148,6 +131,7 @@ parser.add_argument(
     action="store_true",
     help="evaluate model on validation set",
 )
+# Distributed Learning
 parser.add_argument(
     "--world-size",
     default=-1,
