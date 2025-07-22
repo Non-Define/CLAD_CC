@@ -1,5 +1,5 @@
-Dataset/LA/*
-Dataset/ESC-50-master/*
+Dataset/asvspoof_2019/
+Dataset/asvspoof_5/
 CLAD_150_10_2310.pth
 nohup.out
 scores
