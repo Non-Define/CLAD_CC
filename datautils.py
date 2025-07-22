@@ -364,27 +364,6 @@ class FreqMask(torch.nn.Module):
             length=waveform.shape[-1]
         )
         return augmented_waveform.squeeze(0)
-'''
-by HH
-'''
-class TimeMask(nn.Module):
-    def __init__(self, time_mask_param, sample_rate=16000, n_fft=512, hop_length=128):
-        super(TimeMask, self).__init__()
-        self.time_mask_param = time_mask_param
-        self.sample_rate = sample_rate
-        self.n_fft = n_fft
-        self.hop_length = hop_length
-
-    def forward(self, spec):
-        if spec.dim() != 3:
-            raise ValueError("Expected input shape (batch, freq, time)")
-        
-        batch_size, freq_bins, time_steps = spec.shape
-        for i in range(batch_size):
-            mask_width = min(self.time_mask_param, time_steps)
-            t = random.randint(0, time_steps - mask_width)
-            spec[i, :, t:t + mask_width] = 0
-        return spec
     
 class AddZeroPadding(nn.Module):
     def __init__(self, max_left_len, min_left_len, max_right_len, min_right_len):
