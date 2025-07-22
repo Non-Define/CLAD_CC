@@ -367,9 +367,9 @@ class FreqMask(torch.nn.Module):
 '''
 by HH
 '''
-class TimeMasking(nn.Module):
+class TimeMask(nn.Module):
     def __init__(self, time_mask_param, sample_rate=16000, n_fft=512, hop_length=128):
-        super(TimeMasking, self).__init__()
+        super(TimeMask, self).__init__()
         self.time_mask_param = time_mask_param
         self.sample_rate = sample_rate
         self.n_fft = n_fft
