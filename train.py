@@ -336,6 +336,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
         ):
+            # Rename the weight files according to each augmentation method
             save_checkpoint(
                 {
                     "epoch": epoch + 1,
@@ -345,7 +346,7 @@ def main_worker(gpu, ngpus_per_node, args):
                     "optimizer": optimizer.state_dict(),
                 },
                 is_best=False,
-                filename="checkpoint_{:04d}.pth.tar".format(epoch),
+                filename="/white_noise/checkpoint_{:04d}.pth.tar".format(epoch),
             )
 
 def train(asvspoof_2019_LA_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
