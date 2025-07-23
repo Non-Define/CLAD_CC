@@ -45,7 +45,8 @@ torch.cuda.set_device(gpu)
 
 with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
     config = json.load(f_json)
-
+#-----------------------------------------------------------------------------------------------
+# parser
 parser = argparse.ArgumentParser(description="PyTorch Test Training")
 parser.add_argument(
     "-j",
@@ -207,7 +208,7 @@ def main_worker(gpu, ngpus_per_node, args):
             world_size=args.world_size,
             rank=args.rank,
         )
-        
+    
     database_path = config["database_path"]
     cut_length = 64600
     batch_size = 12
