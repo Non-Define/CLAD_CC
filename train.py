@@ -326,7 +326,7 @@ def main_worker(gpu, ngpus_per_node, args):
         "resample_17000": ResampleAugmentation([17000]),
     }
     
-    selected_manipulation_key = "white_noise_20"
+    selected_manipulation_key = "no_augmentation"
     selected_transform = manipulations[selected_manipulation_key]
     
     for epoch in range(args.start_epoch, args.epochs):
@@ -344,12 +344,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 {
                     "epoch": epoch + 1,
                     "arch": args.arch,
-                    "xlsr_state_dict": model.state_dict(),
                     "encoder_state_dict": encoder.state_dict(),
                     "optimizer": optimizer.state_dict(),
+                    "loss": final_loss.item(),
                 },
                 is_best=False,
-                filename="/white_noise/checkpoint_{:04d}.pth.tar".format(epoch),
+                filename="/no_augmentation/checkpoint_{:04d}.pth.tar".format(epoch),
             )
 
 def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
@@ -409,11 +409,11 @@ def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epo
         with torch.no_grad():
             outputs = model(audio_input)
             xlsr_features = outputs.last_hidden_state
-        out_stj, out_bldl = encoder(xlsr_features)
+        out_stjgat, out_bldl = encoder(xlsr_features)
 
-        loss_stj = criterion(out_stj, labels)
+        loss_stjgat = criterion(out_stjgat, labels)
         loss_bldl = criterion(out_bldl, labels)
-        final_loss = 0.5 * loss_stj + 0.5 * loss_bldl
+        final_loss = 0.5 * loss_stjgat + 0.5 * loss_bldl
 
         # Backward & Optimize
         optimizer.zero_grad()
