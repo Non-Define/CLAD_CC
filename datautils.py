@@ -520,7 +520,7 @@ def pad(x, max_len=64600):
     padded_x = np.tile(x, (1, num_repeats))[:, :max_len][0]
     return padded_x	
 
-class Dataset_ASVspoof2019(Dataset):
+class Dataset_ASVspoof5(Dataset):
     def __init__(self, list_IDs, labels, utt2spk, base_dir, cut_length=64600):
             '''self.list_IDs	: list of strings (each string: utt key),
                self.labels      : dictionary (key: utt key, value: label integer)'''
