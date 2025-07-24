@@ -449,33 +449,35 @@ class MoCoAudioDataset(torch.utils.data.Dataset):
 # Evaluation utilities
 # Mainly modified from https://github.com/asvspoof-challenge/2021/blob/main/LA/Baseline-RawNet2/data_utils.py by "Hemlata Tak"
 # Obtain speaker information for SAMO implementation
-def genSpoof_train_list( dir_meta, is_train=False, is_eval=False):
+def genSpoof_train_list(dir_meta, is_train=False, is_eval=False):
     utt2spk = {}
     d_meta = {}
-    file_list=[]
-    with open(dir_meta, 'r') as f:
-         l_meta = f.readlines()
+    file_list = []
 
-    if (is_train):
+    with open(dir_meta, 'r') as f:
+        l_meta = f.readlines()
+
+    if is_eval:
         for line in l_meta:
-            spk, key,_,_,label = line.strip().split(' ')
-            utt2spk[key] = spk
-            file_list.append(key)
-            d_meta[key] = 1 if label == 'bonafide' else 0
-        return d_meta,file_list,utt2spk
-    
-    elif(is_eval):
-        for line in l_meta:
-            key= line.strip()
+            key = line.strip()
             file_list.append(key)
         return file_list
-    else:  # so same as is_train ?? by haulyn5
+
+    else:
         for line in l_meta:
-            spk, key,_,_,label = line.strip().split(' ')
+            parts = line.strip().split()
+            if len(parts) < 10:
+                continue  
+
+            spk = parts[0]
+            key = parts[1]
+            label = parts[8]  # spoof / bonafide
+
             utt2spk[key] = spk
             file_list.append(key)
             d_meta[key] = 1 if label == 'bonafide' else 0
-        return d_meta,file_list,utt2spk
+
+        return d_meta, file_list, utt2spk
     
 def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):  
     utt2spk = {}
@@ -537,7 +539,7 @@ class Dataset_ASVspoof5(Dataset):
     def __getitem__(self, index):
             # self.cut=64600 # take ~4 sec audio (64600 samples)
             key = self.list_IDs[index]
-            X,fs = librosa.load(self.base_dir+'flac/'+key+'.flac', sr=16000) 
+            X, fs = librosa.load(os.path.join(self.base_dir, key + '.flac'), sr=16000)
             X_pad= pad(X,self.cut)
             x_inp= torch.Tensor(X_pad)
             x_inp = torch.unsqueeze(x_inp, 0)  # added by haulyn5, add a dimension for channels In order to be consistent with the previous dataset
