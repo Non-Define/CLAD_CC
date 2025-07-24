@@ -346,10 +346,10 @@ def main_worker(gpu, ngpus_per_node, args):
                     "arch": args.arch,
                     "encoder_state_dict": encoder.state_dict(),
                     "optimizer": optimizer.state_dict(),
-                    "loss": final_loss.item(),
+                    "loss": final_loss.item(), 
                 },
                 is_best=False,
-                filename="/no_augmentation/checkpoint_{:04d}.pth.tar".format(epoch),
+                filename="/checkpoint_train/no_augmentation/checkpoint_{:04d}.pth.tar".format(epoch),
             )
 
 def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
