@@ -17,7 +17,7 @@ import copy
 import gc
 from tqdm import tqdm
 
-from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof2019, pad_or_clip_batch
+from datautils import AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, genSpoof_train_list, Dataset_ASVspoof5
 from model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
 from transformers import Wav2Vec2Model
 
@@ -154,7 +154,8 @@ parser.add_argument(
     "fastest way to use PyTorch for either single node or "
     "multi node data parallel training",
 )
-
+#-----------------------------------------------------------------------------------------------
+# main
 def main() -> None:
     args = parser.parse_args()
 
@@ -208,7 +209,8 @@ def main_worker(gpu, ngpus_per_node, args):
             world_size=args.world_size,
             rank=args.rank,
         )
-    
+#-----------------------------------------------------------------------------------------------
+# Data, Model Define
     database_path = config["database_path"]
     cut_length = 64600
     batch_size = 12
@@ -254,21 +256,21 @@ def main_worker(gpu, ngpus_per_node, args):
     
     # data loading code
     d_label_trn, file_train, utt2spk = genSpoof_train_list(
-        dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
+        dir_meta=os.path.join(database_path, "ASVspoof5.train.tsv"),
         is_train=True,
         is_eval=False
     )
-    print('no. of ASVspoof 2019 LA training trials', len(file_train))
+    print('no. of ASVspoof 5 LA training trials', len(file_train))
 
-    asvspoof_LA_train_dataset = Dataset_ASVspoof2019(
+    asvspoof_5_train_dataset = Dataset_ASVspoof5(
         list_IDs=file_train,
         labels=d_label_trn,
-        base_dir=os.path.join(database_path, 'ASVspoof2019_LA_train/'),
+        base_dir=os.path.join(database_path, 'flac_T/'),
         cut_length=cut_length,
         utt2spk=utt2spk
     )
-    asvspoof_2019_LA_train_dataloader = DataLoader(
-        asvspoof_LA_train_dataset,
+    asvspoof_5_train_dataloader = DataLoader(
+        asvspoof_5_train_dataset,
         batch_size=batch_size,
         shuffle=False,
         drop_last=False,
@@ -332,7 +334,7 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
 
-        train(asvspoof_2019_LA_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform)
+        train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform)
 
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
@@ -350,12 +352,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 filename="/white_noise/checkpoint_{:04d}.pth.tar".format(epoch),
             )
 
-def train(asvspoof_2019_LA_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
+def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
     progress = ProgressMeter(
-        len(asvspoof_2019_LA_train_dataloader),
+        len(asvspoof_5_train_dataloader),
         [batch_time, data_time, losses],
         prefix="Epoch: [{}]".format(epoch),
     )
@@ -363,7 +365,7 @@ def train(asvspoof_2019_LA_train_dataloader, model, encoder, criterion, optimize
     encoder.train()
     end = time.time()
     
-    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_train_dataloader)):
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_5_train_dataloader)):
         data_time.update(time.time() - end)
         audio_input = audio_input.squeeze(1).to(device)
         labels = labels.to(audio_input.device)
