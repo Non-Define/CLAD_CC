@@ -57,7 +57,7 @@ parser.add_argument(
     help="number of data loading workers (default: 32)",
 )
 parser.add_argument(
-    "--epochs", default=150, type=int, metavar="N", help="number of total epochs to run"
+    "--epochs", default=100, type=int, metavar="N", help="number of total epochs to run"
 )
 parser.add_argument(
     "--arch", default="dual branch", help="model architecture"
@@ -333,8 +333,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
-
-        train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform)
+        loss = train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform)
 
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
@@ -346,10 +345,10 @@ def main_worker(gpu, ngpus_per_node, args):
                     "arch": args.arch,
                     "encoder_state_dict": encoder.state_dict(),
                     "optimizer": optimizer.state_dict(),
-                    "loss": final_loss.item(), 
+                    "loss": loss.item(), 
                 },
                 is_best=False,
-                filename="/checkpoint_train/no_augmentation/checkpoint_{:04d}.pth.tar".format(epoch),
+                filename="./checkpoint_train/no_augmentation/checkpoint_{:04d}.pth.tar".format(epoch),
             )
 
 def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
@@ -426,6 +425,8 @@ def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epo
 
         if batch_idx % args.print_freq == 0:
             progress.display(batch_idx)
+            
+    return final_loss
 
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     torch.save(state, filename)
