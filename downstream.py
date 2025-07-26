@@ -164,7 +164,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--pretrained", default="/home/cnrl/Workspace/ND/checkpoint_train/checkpoint_0149.pth.tar", type=str, help="path to moco pretrained checkpoint"
+    "--pretrained", default="/home/cnrl/Workspace/ND/checkpoint_train/checkpoint_0149.pth.tar", type=str, help="path to pretrained checkpoint"
 )
 best_acc1 = 0
 
@@ -238,7 +238,8 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     # create model
     # pyre-fixme[61]: `print` is undefined, or not always defined.
     print("=> creating model '{}'".format(args.arch))
-    model = DownStreamLinearClassifier(encoder=encoder, input_depth=160)
+    model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m").to(device)
+    encoder = Model().to(device)
 
     for name, param in model.encoder.named_parameters():
         param.requires_grad = False
@@ -260,7 +261,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
             
         else:
             print("=> no checkpoint found at '{}'".format(args.pretrained))
-
+3
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
         # should always set the single device scope, otherwise,
@@ -341,12 +342,12 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     augmentations = None
     #---------------------------------------------------------------------------------------------------------------------------
     # train
-    d_label_trn, file_train, utt2spk = genSpoof_downstream_list(
-        json_path="/home/cnrl/Workspace/ND/train_label.json",
-        is_train=False,
-        is_eval=True
+    d_label_trn, file_train, utt2spk = genSpoof_train_list(
+        dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt"),
+        is_train=True,
+        is_eval=False
     )
-    print('no. of ASVspoof 2019 LA downstreaming trials', len(file_train))
+    print('no. of ASVspoof 2019 LA training trials', len(file_train))
 
     asvspoof_LA_train_dataset = Dataset_ASVspoof2019(
         list_IDs=file_train,
@@ -358,38 +359,38 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
     asvspoof_2019_LA_train_dataloader = DataLoader(
         asvspoof_LA_train_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=False,
         drop_last=False,
         num_workers=8,
         pin_memory=True
     )
     #---------------------------------------------------------------------------------------------------------------------------
     # validate
-    d_label_trn, file_train, utt2spk = genSpoof_downstream_list(
-        json_path="/home/cnrl/Workspace/ND/dev_label.json",
-        is_train=False,
-        is_eval=True
+    d_label_trn, file_validation, utt2spk = genSpoof_train_list(
+        dir_meta=os.path.join(database_path, "ASVspoof2019_LA_cm_protocols/ASVspoof2019.LA.cm.dev.trn.txt"),
+        is_train=True,
+        is_eval=False
     )
-    print('no. of ASVspoof 2019 LA downstreaming(validate) trials', len(file_train))
-    
-    asvspoof_LA_downstream_dataset = Dataset_ASVspoof2019(
-        list_IDs=file_train,
+    print('no. of ASVspoof 2019 LA development trials', len(file_validation))
+
+    asvspoof_LA_development_dataset = Dataset_ASVspoof2019(
+        list_IDs=file_validation,
         labels=d_label_trn,
         base_dir=os.path.join(database_path, 'ASVspoof2019_LA_dev/'),
         cut_length=cut_length,
         utt2spk=utt2spk
     )
-    asvspoof_2019_LA_downstream_dataloader = DataLoader(
-        asvspoof_LA_downstream_dataset,
+    asvspoof_2019_LA_validation_dataloader = DataLoader(
+        asvspoof_LA_development_dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=False,
         drop_last=False,
         num_workers=8,
         pin_memory=True
     )
     
     # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-    noise_dataset_path = config["noise_dataset_path"]
+    env_noise_dataset_path = config["env_noise_dataset_path"]
     manipulations = {
         "no_augmentation": None,
         "volume_change_50": torchaudio.transforms.Vol(gain=0.5,gain_type='amplitude'),
@@ -397,13 +398,13 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         "white_noise_15": AddWhiteNoise(max_snr_db = 15, min_snr_db=15),
         "white_noise_20": AddWhiteNoise(max_snr_db = 20, min_snr_db=20),
         "white_noise_25": AddWhiteNoise(max_snr_db = 25, min_snr_db=25),
-        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", noise_dataset_path=noise_dataset_path),
-        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", noise_dataset_path=noise_dataset_path),
-        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", noise_dataset_path=noise_dataset_path),
-        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", noise_dataset_path=noise_dataset_path),
-        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", noise_dataset_path=noise_dataset_path),
-        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", noise_dataset_path=noise_dataset_path),
-        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", noise_dataset_path=noise_dataset_path),
+        "env_noise_wind": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="wind", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_footsteps": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="footsteps", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_breathing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="breathing", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_coughing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="coughing", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_rain": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="rain", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_clock_tick": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu",  noise_category="clock_tick", env_noise_dataset_path=env_noise_dataset_path),
+        "env_noise_sneezing": AddEnvironmentalNoise(max_snr_db=20, min_snr_db=20, device="cpu", noise_category="sneezing", env_noise_dataset_path=env_noise_dataset_path),
         "pitchshift_up_110": PitchShift(max_pitch=1.10, min_pitch=1.10, bins_per_octave=12),
         "pitchshift_up_105": PitchShift(max_pitch=1.05, min_pitch=1.05, bins_per_octave=12),
         "pitchshift_down_095": PitchShift(max_pitch=0.95, min_pitch=0.95, bins_per_octave=12),
@@ -475,7 +476,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         elif audio_input.shape[-1] > cut_length:
             audio_input = audio_input[:, :cut_length]
             
-    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_downstream_dataloader)):
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_2019_LA_validation_dataloader)):
         audio_input = audio_input.squeeze(1)
 
         if augmentations_on_cpu is not None:
@@ -531,7 +532,7 @@ def main_worker(gpu, ngpus_per_node, args) -> None:
         train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch, args)
 
         # evaluate on validation set
-        acc1 = validate(asvspoof_2019_LA_downstream_dataloader, model, criterion, args)
+        acc1 = validate(asvspoof_2019_LA_validation_dataloader, model, criterion, args)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -598,19 +599,19 @@ def train(asvspoof_2019_LA_train_dataloader, model, criterion, optimizer, epoch,
         if i % args.print_freq == 0:
             progress.display(i)
 
-def validate(asvspoof_2019_LA_downstream_dataloader, model, criterion, args):
+def validate(asvspoof_2019_LA_validation_dataloader, model, criterion, args):
     batch_time = AverageMeter("Time", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
     top1 = AverageMeter("Acc@1", ":6.2f")
     top5 = AverageMeter("Acc@5", ":6.2f")
     progress = ProgressMeter(
-        len(asvspoof_2019_LA_downstream_dataloader), [batch_time, losses, top1, top5], prefix="Test: "
+        len(asvspoof_2019_LA_validation_dataloader), [batch_time, losses, top1, top5], prefix="Test: "
     )
     # switch to evaluate mode
     model.eval()
     with torch.no_grad():
         end = time.time()
-        for i, batch in enumerate(asvspoof_2019_LA_downstream_dataloader):
+        for i, batch in enumerate(asvspoof_2019_LA_validation_dataloader):
             audio, ids, target = batch
             audio = audio.squeeze(1)
             
