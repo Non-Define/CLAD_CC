@@ -44,7 +44,8 @@ torch.cuda.set_device(gpu)
 
 with open("/home/cnrl/Workspace/ND/config.conf", "r") as f_json:
     config = json.load(f_json)
-
+#-----------------------------------------------------------------------------------------------------------------
+# parser
 parser = argparse.ArgumentParser(description="PyTorch Validation")
 parser.add_argument("data", metavar="DIR", nargs="?", default="/home/cnrl/Workspace/ND", help="path to dataset")
 parser.add_argument(
