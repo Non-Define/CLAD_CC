@@ -95,9 +95,7 @@ parser.add_argument(
     type=int,
     help="learning rate schedule (when to drop lr by 10x)",
 )
-parser.add_argument(
-    "--momentum", default=0.9, type=float, metavar="M", help="momentum of SGD solver"
-)
+parser.add_argument("--momentum", default=0.9, type=float, metavar="M", help="momentum of SGD solver")
 parser.add_argument('--cos', action='store_true', help='Use cosine annealing learning rate')
 parser.add_argument(
     "--wd",
@@ -154,6 +152,7 @@ parser.add_argument(
     "fastest way to use PyTorch for either single node or "
     "multi node data parallel training",
 )
+best_acc1 = 0
 #-----------------------------------------------------------------------------------------------
 # main
 def main() -> None:
@@ -185,6 +184,7 @@ def main() -> None:
     main_worker(args.gpu, ngpus_per_node, args)
 
 def main_worker(gpu, ngpus_per_node, args):
+    global best_acc1
     args.gpu = gpu
     # suppress printing if not master
     if args.multiprocessing_distributed and args.gpu != 0:
@@ -222,6 +222,16 @@ def main_worker(gpu, ngpus_per_node, args):
     model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m").to(device)
     encoder = Model().to(device)
     
+    parameters = [
+    encoder.stjgat.W1.weight,
+    encoder.stjgat.W2.weight,
+    encoder.stjgat.fc.weight,
+    encoder.stjgat.fc.bias,
+    encoder.bldl.fc2.weight,
+    encoder.bldl.fc2.bias,
+    ]
+    assert len(parameters) == 6 
+    
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
     
@@ -253,8 +263,8 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
-    
-    # data loading code
+    #---------------------------------------------------------------------------------------------------------------------------
+    # train
     d_label_trn, file_train, utt2spk = genSpoof_train_list(
         dir_meta=os.path.join(database_path, "ASVspoof5.train.tsv"),
         is_train=True,
@@ -271,6 +281,30 @@ def main_worker(gpu, ngpus_per_node, args):
     )
     asvspoof_5_train_dataloader = DataLoader(
         asvspoof_5_train_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=False,
+        num_workers=8,
+        pin_memory=True
+    )
+    #---------------------------------------------------------------------------------------------------------------------------
+    # validate
+    d_label_trn, file_validation, utt2spk = genSpoof_train_list(
+        dir_meta=os.path.join(database_path, "ASVspoof5.dev.track_1.tsv"),
+        is_train=True,
+        is_eval=False
+    )
+    print('no. of ASVspoof 5 development trials', len(file_validation))
+
+    asvspoof_5_development_dataset = Dataset_ASVspoof5(
+        list_IDs=file_validation,
+        labels=d_label_trn,
+        base_dir=os.path.join(database_path, 'flac_D/'),
+        cut_length=cut_length,
+        utt2spk=utt2spk
+    )
+    asvspoof_5_validation_dataloader = DataLoader(
+        asvspoof_5_development_dataset,
         batch_size=batch_size,
         shuffle=False,
         drop_last=False,
@@ -333,8 +367,9 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, epoch, args)
-        loss = train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform)
-
+        train_loss = train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform)
+        val_loss, val_acc = validate(asvspoof_5_validation_dataloader, model, encoder, criterion, args, cut_length, selected_transform)
+    
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
         ):
@@ -345,7 +380,9 @@ def main_worker(gpu, ngpus_per_node, args):
                     "arch": args.arch,
                     "encoder_state_dict": encoder.state_dict(),
                     "optimizer": optimizer.state_dict(),
-                    "loss": loss.item(), 
+                    "train_loss": train_loss.item(),
+                    "val_loss": val_loss,
+                    "val_acc": val_acc,
                 },
                 is_best=False,
                 filename="./checkpoint_train/no_augmentation/checkpoint_{:04d}.pth.tar".format(epoch),
@@ -427,10 +464,119 @@ def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epo
             
     return final_loss
 
+def validate(asvspoof_5_validation_dataloader, model, encoder, criterion, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
+    batch_time = AverageMeter("Time", ":6.3f")
+    losses = AverageMeter("Loss", ":.4e")
+    top1 = AverageMeter("Acc@1", ":6.2f")
+    progress = ProgressMeter(
+        len(asvspoof_5_validation_dataloader), [batch_time, losses, top1], prefix="Test: "
+    )
+    
+    end = time.time()  
+    model.eval()
+    encoder.eval()
+    # switch to evaluate mode
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_5_validation_dataloader)):
+        audio_input = audio_input.squeeze(1).to(device)
+
+        if augmentations_on_cpu is not None:
+            audio_input = augmentations_on_cpu(audio_input)
+        audio_input = audio_input.to(device)
+
+        audio_length = audio_input.shape[-1]
+        mask = (labels != 0) & (labels != 1)
+        if mask.any():
+            spoof_audio = audio_input[mask]
+            keys = list(manipulations.keys())
+            random.shuffle(keys)
+
+            batch_size = spoof_audio.size(0)
+            augmented_audio_list = []
+
+            for i in range(batch_size):
+                key = keys[i % len(keys)]
+                transform = manipulations[key]
+
+                if transform is None:
+                    transformed = spoof_audio[i]
+                else:
+                    transformed = transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
+                if transformed.shape[-1] > audio_length:
+                    transformed = transformed[..., :audio_length]
+                elif transformed.shape[-1] < audio_length:
+                    pad_size = audio_length - transformed.shape[-1]
+                    transformed = F.pad(transformed, (0, pad_size))
+
+                transformed = transformed.to(audio_input.device)
+                augmented_audio_list.append(transformed)
+
+            augmented_audio = torch.stack(augmented_audio_list)
+            audio_input[mask] = augmented_audio
+
+        if audio_input.shape[-1] < cut_length:
+            audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
+        elif audio_input.shape[-1] > cut_length:
+            audio_input = audio_input[:, :cut_length]
+            
+        if args.gpu is not None:
+            audio = audio.cuda(args.gpu, non_blocking=True)
+        target = target.cuda(args.gpu, non_blocking=True)
+
+        with torch.no_grad():
+            outputs = model(audio_input)
+            xlsr_features = outputs.last_hidden_state
+            out_stjgat, out_bldl = encoder(xlsr_features)
+
+        loss_stjgat = criterion(out_stjgat, target)
+        loss_bldl = criterion(out_bldl, target)
+        final_loss = 0.5 * loss_stjgat + 0.5 * loss_bldl
+
+        acc1 = accuracy(out_stjgat, target, topk=(1, 2))
+        losses.update(final_loss.item(), audio_input.size(0))
+        top1.update(acc1[0], audio_input.size(0))
+
+        batch_time.update(time.time() - end)
+        end = time.time()
+
+        if batch_idx % args.print_freq == 0:
+            progress.display(batch_idx)
+
+        # TODO: this should also be done with the ProgressMeter
+        print(
+            " * Acc@1 {top1.avg:.3f}".format(top1=top1)
+        )
+
+    return top1.avg
+
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, "model_best.pth.tar")
+        
+def sanity_check(state_dict, pretrained_weights) -> None:
+    print("=> loading '{}' for sanity check".format(pretrained_weights))
+    checkpoint = torch.load(pretrained_weights, map_location="cpu")
+    state_dict_pre = checkpoint["encoder_state_dict"]
+
+    allowed_changed_keys = [
+        "stjgat.W1.weight",
+        "stjgat.W2.weight",
+        "stjgat.fc.weight",
+        "stjgat.fc.bias",
+        "bldl.fc2.weight",
+        "bldl.fc2.bias",
+    ]
+
+    for k in list(state_dict.keys()):
+        k_pre = k if k.startswith("encoder.") else "encoder." + k
+
+        if any(allowed_key in k for allowed_key in allowed_changed_keys):
+            continue
+
+        if not torch.equal(state_dict[k].cpu(), state_dict_pre[k_pre]):
+            raise AssertionError(f"{k} is changed in linear classifier training.")
+
+    print("=> sanity check passed.")
 
 class AverageMeter:
     """Computes and stores the average and current value"""
