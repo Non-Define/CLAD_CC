@@ -405,9 +405,8 @@ def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epo
             audio_input = audio_input[:, :cut_length]
 
         # Forward
-        with torch.no_grad():
-            outputs = model(audio_input)
-            xlsr_features = outputs.last_hidden_state
+        outputs = model(audio_input)
+        xlsr_features = outputs.last_hidden_state
         out_stjgat, out_bldl = encoder(xlsr_features)
 
         loss_stjgat = criterion(out_stjgat, labels)
