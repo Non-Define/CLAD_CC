@@ -270,7 +270,7 @@ def main_worker(gpu, ngpus_per_node, args):
         is_train=True,
         is_eval=False
     )
-    print('no. of ASVspoof 5 LA training trials', len(file_train))
+    print('no. of ASVspoof 5 training trials', len(file_train))
 
     asvspoof_5_train_dataset = Dataset_ASVspoof5(
         list_IDs=file_train,
