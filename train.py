@@ -520,7 +520,7 @@ def validate(asvspoof_5_validation_dataloader, model, encoder, criterion, args, 
             
         if args.gpu is not None:
             audio = audio.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
+        target = labels.cuda(args.gpu, non_blocking=True)
 
         with torch.no_grad():
             outputs = model(audio_input)
@@ -546,7 +546,7 @@ def validate(asvspoof_5_validation_dataloader, model, encoder, criterion, args, 
             " * Acc@1 {top1.avg:.3f}".format(top1=top1)
         )
 
-    return top1.avg
+    return top1.avg, losses.avg
 
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     torch.save(state, filename)
@@ -593,6 +593,8 @@ class AverageMeter:
         self.count = 0
 
     def update(self, val, n=1):
+        if isinstance(val, torch.Tensor):  
+            val = val.item()
         self.val = val
         self.sum += val * n
         self.count += n
