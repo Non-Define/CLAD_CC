@@ -6,7 +6,7 @@ import aasist  # official AASIST implementation from https://github.com/clovaai/
 import os
 import torchaudio.transforms
 
-from tqdm import tqdm  # progress bar
+from tqdm import tqdm  
 import seaborn as sns
 import matplotlib.pyplot as plt
 import IPython.display as ipd  # used to display audio
