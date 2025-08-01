@@ -316,6 +316,8 @@ def main_worker(gpu, ngpus_per_node, args):
     total_params_encoder = sum(p.numel() for p in encoder.parameters())
     print(f"Wav2Vec2: {total_params_model:,} parameters | Encoder: {total_params_encoder:,} parameters | Total: {total_params_model + total_params_encoder:,} parameters")
     
+    #---------------------------------------------------------------------------------------------------------------------------
+    # augmentation
     env_noise_dataset_path = config["env_noise_dataset_path"]
     manipulations = {
         "no_augmentation": None,
