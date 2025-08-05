@@ -389,7 +389,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 is_best=False,
                 filename="./checkpoint_train/no_augmentation/checkpoint_{:04d}.pth.tar".format(epoch),
             )
-
+#---------------------------------------------------------------------------------------------------------------------------
+    # train
 def train(asvspoof_5_train_dataloader, model, encoder, criterion, optimizer, epoch, args, cut_length, selected_transform=None,  augmentations_on_cpu=None, augmentations=None):
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
