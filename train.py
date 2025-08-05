@@ -549,7 +549,7 @@ def validate(asvspoof_5_validation_dataloader, model, encoder, criterion, args, 
             " * Acc@1 {top1.avg:.3f}".format(top1=top1)
         )
 
-    return top1.avg, losses.avg
+    return losses.avg, top1.avg
 
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):
     torch.save(state, filename)
