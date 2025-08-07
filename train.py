@@ -282,7 +282,7 @@ def main_worker(gpu, ngpus_per_node, args):
     asvspoof_5_train_dataloader = DataLoader(
         asvspoof_5_train_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=True,
         drop_last=False,
         num_workers=8,
         pin_memory=True
