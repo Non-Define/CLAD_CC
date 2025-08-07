@@ -481,40 +481,7 @@ def validate(asvspoof_5_validation_dataloader, model, encoder, criterion, args, 
     # switch to evaluate mode
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(asvspoof_5_validation_dataloader)):
         audio_input = audio_input.squeeze(1).to(device)
-
-        if augmentations_on_cpu is not None:
-            audio_input = augmentations_on_cpu(audio_input)
-        audio_input = audio_input.to(device)
-
         audio_length = audio_input.shape[-1]
-        mask = (labels != 0) & (labels != 1)
-        if mask.any():
-            spoof_audio = audio_input[mask]
-            keys = list(manipulations.keys())
-            random.shuffle(keys)
-
-            batch_size = spoof_audio.size(0)
-            augmented_audio_list = []
-
-            for i in range(batch_size):
-                key = keys[i % len(keys)]
-                transform = manipulations[key]
-
-                if transform is None:
-                    transformed = spoof_audio[i]
-                else:
-                    transformed = transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
-                if transformed.shape[-1] > audio_length:
-                    transformed = transformed[..., :audio_length]
-                elif transformed.shape[-1] < audio_length:
-                    pad_size = audio_length - transformed.shape[-1]
-                    transformed = F.pad(transformed, (0, pad_size))
-
-                transformed = transformed.to(audio_input.device)
-                augmented_audio_list.append(transformed)
-
-            augmented_audio = torch.stack(augmented_audio_list)
-            audio_input[mask] = augmented_audio
 
         if audio_input.shape[-1] < cut_length:
             audio_input = audio_input.repeat(1, int(cut_length/audio_input.shape[-1])+1)[:, :cut_length]
