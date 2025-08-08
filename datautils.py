@@ -393,7 +393,6 @@ class AddZeroPadding(nn.Module):
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
-
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
     d_meta = {}
