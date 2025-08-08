@@ -31,6 +31,7 @@ if __name__ == "__main__":
                         dest="mode",
                         type=str,
                         help="mode flag: t1(Track 1) or t2_tandem(Track 2) or t2_single(Track 2)",
+                        default="t1"
                         required=True)
     
     parser.add_argument("--cm",
@@ -42,15 +43,5 @@ if __name__ == "__main__":
                         dest="key_cm",
                         type=str,
                         help="cm key file as input")
-    
-    parser.add_argument("--sasv",
-                        dest="score_sasv",
-                        type=str,
-                        help="sasv score as input")
-    
-    parser.add_argument("--sasv_keys",
-                        dest="key_sasv",
-                        type=str,
-                        help="sasv key as input")
 
     main(parser.parse_args())
