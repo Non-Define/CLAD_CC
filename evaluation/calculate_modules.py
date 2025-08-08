@@ -2,23 +2,7 @@ import sys
 import numpy as np
 
 def obtain_asv_error_rates(tar_asv, non_asv, spoof_asv, asv_threshold):
-    """
-    compute ASV error rates
-    
-    input
-    -----
-      tar_asv: np.array, (#N, ), target bonafide scores
-      non_asv: np.array, (#M, ), nontarget bonafide scores
-      spoof_asv: np.array, (#K, ), spoof scores
-      asv_threshold: scalar, ASV threshold
 
-    output
-    ------
-      Pfa_asv: scalar, false acceptance rate of nontarget bonafide
-      Pmiss_asv: scalar, miss rate of target bonafide
-      Pmiss_spoof_asv: scalar, 1 - Pfa_spoof_asv
-      Pfa_spoof_asv: scalar, false acceptance rate of spoofed data
-    """
     # False alarm and miss rates for ASV
     Pfa_asv = sum(non_asv >= asv_threshold) / non_asv.size
     Pmiss_asv = sum(tar_asv < asv_threshold) / tar_asv.size
@@ -33,22 +17,7 @@ def obtain_asv_error_rates(tar_asv, non_asv, spoof_asv, asv_threshold):
 
     return Pfa_asv, Pmiss_asv, Pmiss_spoof_asv, Pfa_spoof_asv
 
-
 def compute_det_curve(target_scores, nontarget_scores):
-    """
-    compute DET curve values
-                                                                           
-    input
-    -----
-      target_scores:    np.array, target trial scores
-      nontarget_scores: np.array, nontarget trial scores
-    
-    output
-    ------
-      frr:   np.array, FRR, (#N, ), where #N is total number of scores + 1
-      far:   np.array, FAR, (#N, ), where #N is total number of scores + 1
-      thr:   np.array, threshold, (#N, )
-    """
 
     n_scores = target_scores.size + nontarget_scores.size
     all_scores = np.concatenate((target_scores, nontarget_scores))
@@ -75,7 +44,6 @@ def compute_det_curve(target_scores, nontarget_scores):
 
     return frr, far, thresholds
 
-
 def compute_Pmiss_Pfa_Pspoof_curves(tar_scores, non_scores, spf_scores):
 
     # Concatenate all scores and designate arbitrary labels 1=target, 0=nontarget, -1=spoof
@@ -98,15 +66,13 @@ def compute_Pmiss_Pfa_Pspoof_curves(tar_scores, non_scores, spf_scores):
 
     return Pmiss, Pfa_non, Pfa_spoof, thresholds
 
-
 def compute_eer(target_scores, nontarget_scores):
     """ Returns equal error rate (EER) and the corresponding threshold. """
     frr, far, thresholds = compute_det_curve(target_scores, nontarget_scores)
     abs_diffs = np.abs(frr - far)
     min_index = np.argmin(abs_diffs)
     eer = np.mean((frr[min_index], far[min_index]))
-    return eer, frr, far, thresholds, thresholds[min_index]
-
+    return eer, frr, far, thresholds
 
 def compute_mindcf(frr, far, thresholds, Pspoof, Cmiss, Cfa):
     min_c_det = float("inf")
@@ -123,44 +89,6 @@ def compute_mindcf(frr, far, thresholds, Pspoof, Cmiss, Cfa):
     c_def = min(Cmiss * p_target, Cfa * (1 - p_target))
     min_dcf = min_c_det / c_def
     return min_dcf, min_c_det_threshold
-
-def compute_actDCF(bonafide_scores, spoof_scores, Pspoof, Cmiss, Cfa):
-    """
-    compute actual DCF, given threshold decided by prior and decision costs
-
-    input
-    -----
-      bonafide_scores: np.array, scores of bonafide data
-      spoof_scores: np.array, scores of spoof data
-      Pspoof: scalar, prior probabiltiy of spoofed class
-      Cmiss: scalar, decision cost of missing a bonafide sample
-      Cfa: scalar, decision cost of falsely accept a spoofed sample
-
-    output
-    ------
-      actDCF: scalar, actual DCF normalized
-      threshold: scalar, threshold for making the decision
-    """
-    # the beta in evaluation plan (eq.(3))
-    beta = Cmiss * (1 - Pspoof) / (Cfa * Pspoof)
-    
-    # compute the decision threshold based on
-    threshold = - np.log(beta)
-
-    # miss rate
-    rate_miss = np.sum(bonafide_scores < threshold) / bonafide_scores.size
-
-    # fa rate
-    rate_fa = np.sum(spoof_scores >= threshold) / spoof_scores.size
-
-    # unnormalized DCF
-    act_dcf = Cmiss * (1 - Pspoof) * rate_miss + Cfa * Pspoof * rate_fa
-
-    # normalized DCF
-    act_dcf = act_dcf / np.min([Cfa * Pspoof, Cmiss * (1 - Pspoof)])
-    
-    return act_dcf, threshold
-    
 
 def calculate_CLLR(target_llrs, nontarget_llrs):
     """
@@ -193,3 +121,25 @@ def calculate_CLLR(target_llrs, nontarget_llrs):
     cllr = 0.5 * (np.mean(negative_log_sigmoid(target_llrs)) + np.mean(negative_log_sigmoid(-nontarget_llrs))) / np.log(2)
     
     return cllr
+
+def compute_Pmiss_Pfa_Pspoof_curves(tar_scores, non_scores, spf_scores):
+
+    # Concatenate all scores and designate arbitrary labels 1=target, 0=nontarget, -1=spoof
+    all_scores = np.concatenate((tar_scores, non_scores, spf_scores))
+    labels = np.concatenate((np.ones(tar_scores.size), np.zeros(non_scores.size), -1*np.ones(spf_scores.size)))
+
+    # Sort labels based on scores
+    indices = np.argsort(all_scores, kind='mergesort')
+    labels = labels[indices]
+
+    # Cumulative sums
+    tar_sums    = np.cumsum(labels==1)
+    non_sums    = np.cumsum(labels==0)
+    spoof_sums  = np.cumsum(labels==-1)
+
+    Pmiss       = np.concatenate((np.atleast_1d(0), tar_sums / tar_scores.size))
+    Pfa_non     = np.concatenate((np.atleast_1d(1), 1 - (non_sums / non_scores.size)))
+    Pfa_spoof   = np.concatenate((np.atleast_1d(1), 1 - (spoof_sums / spf_scores.size)))
+    thresholds  = np.concatenate((np.atleast_1d(all_scores[indices[0]] - 0.001), all_scores[indices]))  # Thresholds are the sorted scores
+
+    return Pmiss, Pfa_non, Pfa_spoof, thresholds
