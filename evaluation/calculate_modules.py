@@ -121,25 +121,3 @@ def calculate_CLLR(target_llrs, nontarget_llrs):
     cllr = 0.5 * (np.mean(negative_log_sigmoid(target_llrs)) + np.mean(negative_log_sigmoid(-nontarget_llrs))) / np.log(2)
     
     return cllr
-
-def compute_Pmiss_Pfa_Pspoof_curves(tar_scores, non_scores, spf_scores):
-
-    # Concatenate all scores and designate arbitrary labels 1=target, 0=nontarget, -1=spoof
-    all_scores = np.concatenate((tar_scores, non_scores, spf_scores))
-    labels = np.concatenate((np.ones(tar_scores.size), np.zeros(non_scores.size), -1*np.ones(spf_scores.size)))
-
-    # Sort labels based on scores
-    indices = np.argsort(all_scores, kind='mergesort')
-    labels = labels[indices]
-
-    # Cumulative sums
-    tar_sums    = np.cumsum(labels==1)
-    non_sums    = np.cumsum(labels==0)
-    spoof_sums  = np.cumsum(labels==-1)
-
-    Pmiss       = np.concatenate((np.atleast_1d(0), tar_sums / tar_scores.size))
-    Pfa_non     = np.concatenate((np.atleast_1d(1), 1 - (non_sums / non_scores.size)))
-    Pfa_spoof   = np.concatenate((np.atleast_1d(1), 1 - (spoof_sums / spf_scores.size)))
-    thresholds  = np.concatenate((np.atleast_1d(all_scores[indices[0]] - 0.001), all_scores[indices]))  # Thresholds are the sorted scores
-
-    return Pmiss, Pfa_non, Pfa_spoof, thresholds

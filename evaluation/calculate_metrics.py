@@ -1,15 +1,16 @@
 import os
 import numpy as np
 
-from calculate_modules import *
-import util
+from evaluation.calculate_modules import *
+import evaluation.util
 
-def calculate_minDCF_EER_CLLR_actDCF(cm_scores, cm_keys, output_file, printout=True):
-    """
-    Evaluation metrics for track 1
-    Primary metrics: min DCF,
-    Secondary metrics: EER, CLLR, actDCF
-    """
+def calculate_minDCF_EER_CLLR(cm_scores_file,
+                       output_file,
+                       printout=True):
+    # Evaluation metrics for Phase 1
+    # Primary metrics: min DCF,
+    # Secondary metrics: EER, CLLR
+
     Pspoof = 0.05
     dcf_cost_model = {
         'Pspoof': Pspoof,  # Prior probability of a spoofing attack
@@ -17,36 +18,33 @@ def calculate_minDCF_EER_CLLR_actDCF(cm_scores, cm_keys, output_file, printout=T
         'Cfa' : 10, # Cost of CM system falsely accepting nontarget speaker
     }
 
-    assert cm_keys.size == cm_scores.size, "Error, unequal length of cm label and score files"
-    
-    # Extract bona fide (real human) and spoof scores from the CM scores
-    bona_cm = cm_scores[cm_keys == util.g_cm_bon]
-    spoof_cm = cm_scores[cm_keys == util.g_cm_spf]
 
-    # EERs of the standalone systems
-    eer_cm, frr, far, thresholds, eer_threshold = compute_eer(bona_cm, spoof_cm)#[0]
-    # cllr
+    # Load CM scores
+    cm_data = np.genfromtxt(cm_scores_file, dtype=str)
+    cm_keys = cm_data[:, 3]
+    cm_scores = cm_data[:, 2].astype(np.float64)
+
+    # Extract bona fide (real human) and spoof scores from the CM scores
+    bona_cm = cm_scores[cm_keys == 'bonafide']
+    spoof_cm = cm_scores[cm_keys == 'spoof']
+
+    # EERs of the standalone systems and fix ASV operating point to EER threshold
+    eer_cm, frr, far, thresholds = compute_eer(bona_cm, spoof_cm)#[0]
     cllr_cm = calculate_CLLR(bona_cm, spoof_cm)
-    # min DCF
     minDCF_cm, _ = compute_mindcf(frr, far, thresholds, Pspoof, dcf_cost_model['Cmiss'], dcf_cost_model['Cfa'])
-    # actual DCF
-    actDCF, _ = compute_actDCF(bona_cm, spoof_cm, Pspoof, dcf_cost_model['Cmiss'], dcf_cost_model['Cfa'])
 
     if printout:
         with open(output_file, "w") as f_res:
             f_res.write('\nCM SYSTEM\n')
-            f_res.write('\tmin DCF \t\t= {} '
+            f_res.write('\tmin DCF \t\t= {} % '
                         '(min DCF for countermeasure)\n'.format(
                             minDCF_cm))
             f_res.write('\tEER\t\t= {:8.9f} % '
                         '(EER for countermeasure)\n'.format(
                             eer_cm * 100))
-            f_res.write('\tCLLR\t\t= {:8.9f} bits '
+            f_res.write('\tCLLR\t\t= {:8.9f} % '
                         '(CLLR for countermeasure)\n'.format(
-                            cllr_cm))
-            f_res.write('\tactDCF\t\t= {:} '
-                        '(actual DCF)\n'.format(
-                            actDCF))
+                            cllr_cm * 100))
         os.system(f"cat {output_file}")
 
-    return minDCF_cm, eer_cm, cllr_cm, actDCF
+    return minDCF_cm, eer_cm, cllr_cm
