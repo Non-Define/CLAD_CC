@@ -2,7 +2,6 @@ import os
 import numpy as np
 
 from calculate_modules import *
-import a_dcf
 import util
 
 def calculate_minDCF_EER_CLLR_actDCF(cm_scores, cm_keys, output_file, printout=True):
