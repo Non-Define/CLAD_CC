@@ -221,22 +221,15 @@ def main_worker(gpu, ngpus_per_node, args):
     # Define XLSR, SE-Re2blocks + STJ-GAT + BLDL
     model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m").to(device)
     encoder = Model().to(device)
-    
-    parameters = [
-    encoder.stjgat.W1.weight,
-    encoder.stjgat.W2.weight,
-    encoder.stjgat.fc.weight,
-    encoder.stjgat.fc.bias,
-    encoder.bldl.fc2.weight,
-    encoder.bldl.fc2.bias,
-    ]
-    assert len(parameters) == 6 
-    
+
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
     
+    for param in model.parameters():  
+        param.requires_grad = False  
+
     optimizer = torch.optim.Adam(
-        list(model.parameters()) + list(encoder.parameters()),
+        encoder.parameters(), 
         args.lr,
         weight_decay=args.weight_decay,
     )
