@@ -9,9 +9,11 @@ import librosa
 import timestretch
 import json
 import numpy as np
+import soundfile as sf
 
-import torch
 import torchaudio
+import torch
+from torch import Tensor
 import torch.nn as nn
 from torch.utils.data import Dataset
 #------------------------------------------------------------------------------------------------
@@ -390,120 +392,93 @@ class AddZeroPadding(nn.Module):
         if right_len == None:
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
+#-----------------------------------------------------------------------------------------------
 
-# Evaluation utilities
-# Mainly modified from https://github.com/asvspoof-challenge/2021/blob/main/LA/Baseline-RawNet2/data_utils.py by "Hemlata Tak"
-# Obtain speaker information for SAMO implementation
-def genSpoof_train_list(dir_meta, is_train=False, is_eval=False):
-    utt2spk = {}
+def genSpoof_list(dir_meta, is_train=False, is_eval=False):
+
     d_meta = {}
     file_list = []
-
-    with open(dir_meta, 'r') as f:
+    with open(dir_meta, "r") as f:
         l_meta = f.readlines()
 
-    if is_eval:
-        for line in l_meta:
-            key = line.strip()
-            file_list.append(key)
-        return file_list
-
-    else:
-        for line in l_meta:
-            parts = line.strip().split()
-            if len(parts) < 10:
-                continue  
-
-            spk = parts[0]
-            key = parts[1]
-            label = parts[8]  # spoof / bonafide
-
-            utt2spk[key] = spk
-            file_list.append(key)
-            d_meta[key] = 1 if label == 'bonafide' else 0
-
-        return d_meta, file_list, utt2spk
-    
-def genSpoof_downstream_list(json_path, is_train=False, is_eval=False):  
-    utt2spk = {}
-    d_meta = {}
-    file_list = []
-    with open(json_path, 'r') as f:
-        data = json.load(f)
-    
     if is_train:
-        for item in data:
-            key = item['name']
+        for line in l_meta:
+            _, key, _, _, _, label = line.strip().split(" ")
+            file_list.append(key)
+            d_meta[key] = 1 if label == "bonafide" else 0
+        return d_meta, file_list
+
+    elif is_eval:
+        for line in l_meta:
+            _, key, _, _, _, _ = line.strip().split(" ")
             file_list.append(key)
         return file_list
-    
-    elif is_eval:
-        for item in data:
-            key = item['name']
-            label = item['label']
-            method = item['method']
-            
-            utt2spk[key] = method  
-            file_list.append(key)
-            d_meta[key] = label
-        return d_meta, file_list, utt2spk
-    
     else:
-        for item in data:
-            key = item['name']
-            label = item['label']
-            method = item['method']
-            utt2spk[key] = method
+        for line in l_meta:
+            _, key, _, _, _, label = line.strip().split(" ")
             file_list.append(key)
-            d_meta[key] = label
-        return d_meta, file_list, utt2spk
+            d_meta[key] = 1 if label == "bonafide" else 0
+        return d_meta, file_list
+
 
 def pad(x, max_len=64600):
     x_len = x.shape[0]
     if x_len >= max_len:
         return x[:max_len]
     # need to pad
-    num_repeats = int(max_len / x_len)+1
+    num_repeats = int(max_len / x_len) + 1
     padded_x = np.tile(x, (1, num_repeats))[:, :max_len][0]
-    return padded_x	
+    return padded_x
 
-class Dataset_ASVspoof5(Dataset):
-    def __init__(self, list_IDs, labels, utt2spk, base_dir, cut_length=64600):
-            '''self.list_IDs	: list of strings (each string: utt key),
-               self.labels      : dictionary (key: utt key, value: label integer)'''
-               
-            self.list_IDs = list_IDs
-            self.labels = labels
-            self.base_dir = base_dir
-            self.cut = cut_length
-            self.utt2spk = utt2spk
-        
+
+def pad_random(x: np.ndarray, max_len: int = 64600):
+    x_len = x.shape[0]
+    # if duration is already long enough
+    if x_len >= max_len:
+        stt = np.random.randint(x_len - max_len)
+        return x[stt:stt + max_len]
+
+    # if too short
+    num_repeats = int(max_len / x_len) + 1
+    padded_x = np.tile(x, (num_repeats))[:max_len]
+    return padded_x
+
+
+class TrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, base_dir):
+        """self.list_IDs	: list of strings (each string: utt key),
+           self.labels      : dictionary (key: utt key, value: label integer)"""
+        self.list_IDs = list_IDs
+        self.labels = labels
+        self.base_dir = base_dir
+        self.cut = 64600  # take ~4 sec audio (64600 samples)
+
     def __len__(self):
-           return len(self.list_IDs)
+        return len(self.list_IDs)
 
     def __getitem__(self, index):
-            # self.cut=64600 # take ~4 sec audio (64600 samples)
-            key = self.list_IDs[index]
-            X, fs = librosa.load(os.path.join(self.base_dir, key + '.flac'), sr=16000)
-            X_pad= pad(X,self.cut)
-            x_inp= torch.Tensor(X_pad)
-            x_inp = torch.unsqueeze(x_inp, 0)  # added by haulyn5, add a dimension for channels In order to be consistent with the previous dataset
-            y = self.labels[key]
-            spk = self.utt2spk[key]
-            return x_inp, spk, y
+        key = self.list_IDs[index]
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        X_pad = pad_random(X, self.cut)
+        x_inp = Tensor(X_pad)
+        y = self.labels[key]
+        return x_inp, y
 
-# A upgraded version of pad_or_clip function, which can process batched audio, zero padding or  clipping them to the same length
-def pad_or_clip_batch(audio, audio_len, random_clip=True):
-        '''
-        Pad or randomly clip the audio to make it of length audio_len
-        '''
-        if audio.shape[-1] < audio_len:
-            audio = torch.nn.functional.pad(audio, (0, audio_len - audio.shape[-1]))
-        elif audio.shape[-1] > audio_len:
-            if random_clip == True:
-                # randomly clip the audio
-                start = random.randint(0, audio.shape[-1] - audio_len)
-            else:
-                start = 0 # clip from the beginning, which is the standard implementation of AASIST and RawNet2
-                audio = audio[:, start:start+ audio_len]
-        return audio
+
+class TestDataset(Dataset):
+    def __init__(self, list_IDs, base_dir):
+        """self.list_IDs	: list of strings (each string: utt key),
+        """
+        self.list_IDs = list_IDs
+        self.base_dir = base_dir
+        self.cut = 64600  # take ~4 sec audio (64600 samples)
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        X_pad = pad(X, self.cut)
+        x_inp = Tensor(X_pad)
+        return x_inp, key
