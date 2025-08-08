@@ -391,61 +391,6 @@ class AddZeroPadding(nn.Module):
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
 
-# Datasets
-class MoCoAudioDataset(torch.utils.data.Dataset):
-    '''
-    A class for MoCo audio datasets
-    '''
-    def __init__(self, root_dir, file_list, label_list, transform=None, sample_rate=16000, audio_len=64600):
-        '''
-        Args:
-            root_dir (string): Directory with all the audio files.
-            file_list (list): List of audio file names.
-            label_list(dict): Dict of the labels for the file names.
-            transform (callable, optional): Optional transform to be applied
-                on a sample.
-        '''        
-        self.root_dir = root_dir
-        self.file_list = file_list
-        self.label_list = label_list
-        self.transform = transform
-        self.sample_rate = sample_rate
-        self.audio_len = audio_len
-
-    def pad_or_clip(self, audio):
-        '''
-        Pad or randomly clip the audio to make it of length self.audio_len
-        '''
-        if audio.shape[-1] < self.audio_len:
-            audio = audio.repeat(self.audio_len // audio.shape[-1] + 1)[:self.audio_len]
-        elif audio.shape[-1] > self.audio_len:
-            # randomly clip the audio
-            start = random.randint(0, audio.shape[-1] - self.audio_len)
-            # start = 0 # exp5 test
-            audio = audio[start:start+self.audio_len]
-        return audio
-
-    def __getitem__(self, index):
-        key =  self.file_list[index]+'.flac'
-        audio = torchaudio.load(self.root_dir+key)[0]  # torchaudio.load returns a tuple (tensor, sample_rate)
-        audio = audio.squeeze(0)  # Remove the channel dimension
-        # pad or clip to make the audio length to self.audio_len
-        audio1 = self.pad_or_clip(audio)
-        audio2 = self.pad_or_clip(audio)
-
-        # Apply input transformation on CPU, the augmentations on GPU will be applied during training process.
-        if self.transform:
-            audio1 = self.transform(audio1)
-            audio2 = self.transform(audio2)
-
-        key = key[:-5]  # since the key have been added the .flac suffix, we remove it here by take out the last 5 chars
-        label = self.label_list[key]
-        # Return multiple views of the audio data
-        return [audio1, audio2, label]
-
-    def __len__(self):
-        return len(self.file_list)
-
 # Evaluation utilities
 # Mainly modified from https://github.com/asvspoof-challenge/2021/blob/main/LA/Baseline-RawNet2/data_utils.py by "Hemlata Tak"
 # Obtain speaker information for SAMO implementation
