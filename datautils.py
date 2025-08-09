@@ -393,6 +393,45 @@ class AddZeroPadding(nn.Module):
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
+class TrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, base_dir, cut=64600):
+        """self.list_IDs	: list of strings (each string: utt key),
+           self.labels      : dictionary (key: utt key, value: label integer)"""
+        self.list_IDs = list_IDs
+        self.labels = labels
+        self.base_dir = base_dir
+        self.cut = cut  
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        X_pad = pad_random(X, self.cut)
+        x_inp = Tensor(X_pad)
+        y = self.labels[key]
+        return x_inp, y
+
+
+class TestDataset(Dataset):
+    def __init__(self, list_IDs, base_dir, cut=64600):
+        """self.list_IDs	: list of strings (each string: utt key),
+        """
+        self.list_IDs = list_IDs
+        self.base_dir = base_dir
+        self.cut = cut
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        X_pad = pad(X, self.cut)
+        x_inp = Tensor(X_pad)
+        return x_inp, key
+    
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
     d_meta = {}
@@ -402,23 +441,37 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
     if is_train:
         for line in l_meta:
-            _, key, _, _, _, label = line.strip().split(" ")
+            parts = line.strip().split()
+            if len(parts) < 10:
+                print(f"잘못된 라인: {line}")
+                continue
+            key = parts[1]
+            label = parts[9]
             file_list.append(key)
             d_meta[key] = 1 if label == "bonafide" else 0
         return d_meta, file_list
 
     elif is_eval:
         for line in l_meta:
-            _, key, _, _, _, _ = line.strip().split(" ")
+            parts = line.strip().split()
+            if len(parts) < 10:
+                print(f"잘못된 라인: {line}")
+                continue
+            key = parts[1]
             file_list.append(key)
         return file_list
+
     else:
         for line in l_meta:
-            _, key, _, _, _, label = line.strip().split(" ")
+            parts = line.strip().split()
+            if len(parts) < 10:
+                print(f"잘못된 라인: {line}")
+                continue
+            key = parts[1]
+            label = parts[9]
             file_list.append(key)
             d_meta[key] = 1 if label == "bonafide" else 0
         return d_meta, file_list
-
 
 def pad(x, max_len=64600):
     x_len = x.shape[0]
@@ -442,42 +495,17 @@ def pad_random(x: np.ndarray, max_len: int = 64600):
     padded_x = np.tile(x, (num_repeats))[:max_len]
     return padded_x
 
-
-class TrainDataset(Dataset):
-    def __init__(self, list_IDs, labels, base_dir):
-        """self.list_IDs	: list of strings (each string: utt key),
-           self.labels      : dictionary (key: utt key, value: label integer)"""
-        self.list_IDs = list_IDs
-        self.labels = labels
-        self.base_dir = base_dir
-        self.cut = 64600  # take ~4 sec audio (64600 samples)
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        X_pad = pad_random(X, self.cut)
-        x_inp = Tensor(X_pad)
-        y = self.labels[key]
-        return x_inp, y
-
-
-class TestDataset(Dataset):
-    def __init__(self, list_IDs, base_dir):
-        """self.list_IDs	: list of strings (each string: utt key),
-        """
-        self.list_IDs = list_IDs
-        self.base_dir = base_dir
-        self.cut = 64600  # take ~4 sec audio (64600 samples)
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        X_pad = pad(X, self.cut)
-        x_inp = Tensor(X_pad)
-        return x_inp, key
+# A upgraded version of pad_or_clip function, which can process batched audio, zero padding or  clipping them to the same length
+def pad_or_clip_batch(audio, audio_len, random_clip=True):
+        '''
+        Pad or randomly clip the audio to make it of length audio_len
+        '''
+        if audio.shape[-1] < audio_len:
+            audio = torch.nn.functional.pad(audio, (0, audio_len - audio.shape[-1]))
+        elif audio.shape[-1] > audio_len:
+            if random_clip == True:
+                # randomly clip the audio
+                start = random.randint(0, audio.shape[-1] - audio_len)
+            else:
+                start = 0 # clip from the beginning, which is the standard implementation of AASIST and RawNet2
+                audio = audio[:, start:start+ audio_len]
