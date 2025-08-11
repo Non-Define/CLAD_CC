@@ -136,10 +136,10 @@ def main(args: argparse.Namespace) -> None:
             running_loss, dev_eer, dev_dcf, dev_cllr))
         
         writer.add_scalar("loss", running_loss, epoch)
-        print(f"Logged loss for epoch {epoch}: {running_loss}")
         writer.add_scalar("dev_eer", dev_eer, epoch)
         writer.add_scalar("dev_dcf", dev_dcf, epoch)
         writer.add_scalar("dev_cllr", dev_cllr, epoch)
+        writer.flush()
         torch.save(model.state_dict(),
                        model_save_path / "epoch_{}_{:03.3f}.pth".format(epoch, dev_eer))
 
