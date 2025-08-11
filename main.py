@@ -136,6 +136,7 @@ def main(args: argparse.Namespace) -> None:
             running_loss, dev_eer, dev_dcf, dev_cllr))
         
         writer.add_scalar("loss", running_loss, epoch)
+        print(f"Logged loss for epoch {epoch}: {running_loss}")
         writer.add_scalar("dev_eer", dev_eer, epoch)
         writer.add_scalar("dev_dcf", dev_dcf, epoch)
         writer.add_scalar("dev_cllr", dev_cllr, epoch)
@@ -153,6 +154,7 @@ def main(args: argparse.Namespace) -> None:
         writer.add_scalar("best_dev_eer", best_dev_eer, epoch)
         writer.add_scalar("best_dev_tdcf", best_dev_dcf, epoch)
         writer.add_scalar("best_dev_cllr", best_dev_cllr, epoch)
+    writer.close() 
 #-----------------------------------------------------------------------------------------------
 # Model
 class CombinedModel(nn.Module):
@@ -339,15 +341,7 @@ def preprocessing(is_train, trn_loader, dev_loader, model, encoder, criterion, o
             elif audio_input.shape[-1] > cut_length:
                 audio_input = audio_input[:, :cut_length]
 
-        else:
-            if audio_input.shape[-1] < cut_length:
-                audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
-            elif audio_input.shape[-1] > cut_length:
-                audio_input = audio_input[:, :cut_length]
-
     if is_train:
-        return audio_input
-    else:
         return audio_input
 #-----------------------------------------------------------------------------------------------
 # Eval(validation)
@@ -363,7 +357,13 @@ def produce_evaluation_file(
         trial_lines = f_trl.readlines()
     fname_list = []
     score_list = []
+    cut_length = 64600
+    
     for batch_x, utt_id in tqdm(data_loader):
+        if batch_x.shape[-1] < cut_length:
+            batch_x = batch_x.repeat(1, int(cut_length / batch_x.shape[-1]) + 1)[:, :cut_length]
+        elif batch_x.shape[-1] > cut_length:
+            batch_x = batch_x[:, :cut_length]
         batch_x = batch_x.to(device)
         with torch.no_grad():
             _, batch_out = model(batch_x)
