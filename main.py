@@ -111,8 +111,6 @@ def main(args: argparse.Namespace) -> None:
     best_dev_dcf = 1.
     best_dev_cllr = 1.
     n_swa_update = 0  # number of snapshots of model to use in SWA
-    f_log = open(model_tag / "metric_log.txt", "a")
-    f_log.write("=" * 5 + "\n")
 
     # make directory for metric logging
     metric_path = model_tag / "metrics"
