@@ -58,6 +58,8 @@ def main(args: argparse.Namespace) -> None:
     database_path = Path(config["database_path"])
     dev_trial_path = (database_path /
                       "ASVspoof5.dev.track_1.tsv")
+    eval_trial_path = (database_path / 
+                       "ASVspoof5.eval.track_1.tsv")
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
