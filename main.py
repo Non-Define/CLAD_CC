@@ -83,7 +83,7 @@ def main(args: argparse.Namespace) -> None:
     model = get_model(device)
 
     # define dataloaders
-    trn_loader, dev_loader = get_loader(
+    trn_loader, dev_loader, eval_loader = get_loader(
         database_path, args.seed, config)
 
     # evaluates pretrained model 
@@ -93,8 +93,8 @@ def main(args: argparse.Namespace) -> None:
             torch.load(config["model_path"], map_location=device))
         print("Model loaded : {}".format(config["model_path"]))
         print("Start evaluation...")
-        produce_evaluation_file(dev_loader, model, device,
-                                eval_score_path, dev_trial_path)
+        produce_evaluation_file(eval_loader, model, device,
+                                eval_score_path, eval_trial_path)
 
         eval_dcf, eval_eer, eval_cllr = calculate_minDCF_EER_CLLR(
             cm_scores_file=eval_score_path,
@@ -123,14 +123,15 @@ def main(args: argparse.Namespace) -> None:
         running_loss = train_epoch(trn_loader, model, optimizer, device,
                                    scheduler, config)
         
-        produce_evaluation_file(dev_loader, model, device,
-                                metric_path/"dev_score.txt", dev_trial_path)
+        score_file = metric_path / f"dev_score_{epoch}.txt"
+        produce_evaluation_file(dev_loader, model, device, score_file, dev_trial_path)
         dev_eer, dev_dcf, dev_cllr = calculate_minDCF_EER_CLLR(
-            cm_scores_file=metric_path/"dev_score.txt",
+            cm_scores_file=score_file,
             output_file=metric_path/"dev_DCF_EER_{}epo.txt".format(epoch),
             printout=False)
         print("DONE.\nLoss:{:.5f}, dev_eer: {:.3f}, dev_dcf:{:.5f} , dev_cllr:{:.5f}".format(
             running_loss, dev_eer, dev_dcf, dev_cllr))
+        
         writer.add_scalar("loss", running_loss, epoch)
         writer.add_scalar("dev_eer", dev_eer, epoch)
         writer.add_scalar("dev_dcf", dev_dcf, epoch)
@@ -143,7 +144,6 @@ def main(args: argparse.Namespace) -> None:
         if best_dev_eer >= dev_eer:
             print("best model find at epoch", epoch)
             best_dev_eer = dev_eer
-            
             print("Saving epoch {} for swa".format(epoch))
             optimizer_swa.update_swa()
             n_swa_update += 1
@@ -168,7 +168,7 @@ class CombinedModel(nn.Module):
 def get_model(device):
     model = CombinedModel(device)
     nb_params = sum(p.numel() for p in model.parameters())
-    print(f"total params: {nb_params:,}")
+    print(f"Total params: {nb_params:,}")
     return model
 
 def get_loader(
@@ -179,10 +179,13 @@ def get_loader(
 
     trn_database_path = database_path / "flac_T/"
     dev_database_path = database_path / "flac_D/"
+    eval_database_path = database_path / "flac_E_eval/"
     trn_list_path = (database_path /
                      "ASVspoof5.train.tsv")
     dev_trial_path = (database_path /
                       "ASVspoof5.dev.track_1.tsv")
+    eval_trial_path = (database_path / 
+                       "ASVspoof5.eval.track_1.tsv")
     cut = 64600
     #---------------------------------------------------------------------------------------------------------------------------
     # train
@@ -191,7 +194,7 @@ def get_loader(
                                             is_eval=False)
     print("no. training files:", len(file_train))
 
-    train_set = TrainDataset(list_IDs=file_train,
+    train_set = TrainDataset(list_IDs=file_train[:500],
                                            labels=d_label_trn,
                                            base_dir=trn_database_path,
                                            cut=cut)
@@ -212,7 +215,7 @@ def get_loader(
                                 is_eval=False)
     print("no. validation files:", len(file_dev))
 
-    dev_set = TestDataset(list_IDs=file_dev,
+    dev_set = TestDataset(list_IDs=file_dev[:500],
                                             base_dir=dev_database_path)
     dev_loader = DataLoader(dev_set,
                             batch_size=config["batch_size"],
@@ -221,8 +224,24 @@ def get_loader(
                             pin_memory=True,
                             worker_init_fn=seed_worker,
                             num_workers=8)
+    #---------------------------------------------------------------------------------------------------------------------------
+    # evaluation
+    file_eval = genSpoof_list(dir_meta=eval_trial_path,
+                                is_train=False,
+                                is_eval=True)
+    print("no. evaluation files:", len(file_eval))
 
-    return trn_loader, dev_loader
+    eval_set = TestDataset(list_IDs=file_eval[:500],
+                                            base_dir=eval_database_path)
+    eval_loader = DataLoader(eval_set,
+                            batch_size=config["batch_size"],
+                            shuffle=False,
+                            drop_last=False,
+                            pin_memory=True,
+                            worker_init_fn=seed_worker,
+                            num_workers=8)
+    
+    return trn_loader, dev_loader, eval_loader
 
 def augmentation(config):
     env_noise_dataset_path = config["env_noise_dataset_path"]
