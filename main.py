@@ -139,7 +139,6 @@ def main(args: argparse.Namespace) -> None:
         writer.add_scalar("dev_eer", dev_eer, epoch)
         writer.add_scalar("dev_dcf", dev_dcf, epoch)
         writer.add_scalar("dev_cllr", dev_cllr, epoch)
-        writer.flush()
         torch.save(model.state_dict(),
                        model_save_path / "epoch_{}_{:03.3f}.pth".format(epoch, dev_eer))
 
@@ -154,6 +153,7 @@ def main(args: argparse.Namespace) -> None:
         writer.add_scalar("best_dev_eer", best_dev_eer, epoch)
         writer.add_scalar("best_dev_tdcf", best_dev_dcf, epoch)
         writer.add_scalar("best_dev_cllr", best_dev_cllr, epoch)
+        writer.flush()
     writer.close() 
 #-----------------------------------------------------------------------------------------------
 # Model
@@ -201,7 +201,7 @@ def get_loader(
                                             is_eval=False)
     print("no. training files:", len(file_train))
 
-    train_set = TrainDataset(list_IDs=file_train[:500],
+    train_set = TrainDataset(list_IDs=file_train,
                                            labels=d_label_trn,
                                            base_dir=trn_database_path,
                                            cut=cut)
@@ -222,7 +222,7 @@ def get_loader(
                                 is_eval=False)
     print("no. validation files:", len(file_dev))
 
-    dev_set = TestDataset(list_IDs=file_dev[:500],
+    dev_set = TestDataset(list_IDs=file_dev,
                                             base_dir=dev_database_path)
     dev_loader = DataLoader(dev_set,
                             batch_size=config["batch_size"],
@@ -238,7 +238,7 @@ def get_loader(
                                 is_eval=True)
     print("no. evaluation files:", len(file_eval))
 
-    eval_set = TestDataset(list_IDs=file_eval[:500],
+    eval_set = TestDataset(list_IDs=file_eval,
                                             base_dir=eval_database_path)
     eval_loader = DataLoader(eval_set,
                             batch_size=config["batch_size"],
