@@ -301,9 +301,9 @@ def augmentation(config):
     return selected_manipulation_key, selected_transform
 #-----------------------------------------------------------------------------------------------
 # Preprocessing
-def preprocessing(is_train, trn_loader, dev_loader, model, encoder, criterion, optimizer, device, cut_length, config, selected_transform=None, augmentations_on_cpu=None, args=None):
+def preprocessing(is_train, trn_loader, model, encoder, criterion, optimizer, device, cut_length, config, selected_transform=None, augmentations_on_cpu=None, args=None):
     selected_manipulation_key, selected_transform = augmentation(config)
-    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(trn_loader, dev_loader)):
+    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(trn_loader)):
         audio_input = audio_input.squeeze(1).to(device)
         labels = labels.to(audio_input.device)
 
@@ -404,8 +404,7 @@ def train_epoch(
         selected_transform = augmentation(config)
         batch_x = preprocessing(
             is_train=True,
-            trn_loader=[(batch_x, None, batch_y)],  
-            dev_loader=None,
+            trn_loader=[(batch_x, None, batch_y)], 
             model=None,
             encoder=None,
             criterion=None,
