@@ -28,13 +28,14 @@ from evaluation.util import create_optimizer, seed_worker, set_seed, str_to_bool
 warnings.filterwarnings("ignore", category=FutureWarning)
 from tqdm import tqdm
 #-----------------------------------------------------------------------------------------------
-# main
+# Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
 # Configurations
 gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
-    
+#-----------------------------------------------------------------------------------------------
+# Main
 def main(args: argparse.Namespace) -> None:
     """
     Main function.
@@ -152,7 +153,8 @@ def main(args: argparse.Namespace) -> None:
         writer.add_scalar("best_dev_eer", best_dev_eer, epoch)
         writer.add_scalar("best_dev_tdcf", best_dev_dcf, epoch)
         writer.add_scalar("best_dev_cllr", best_dev_cllr, epoch)
-
+#-----------------------------------------------------------------------------------------------
+# Model
 class CombinedModel(nn.Module):
     def __init__(self, device):
         super().__init__()
@@ -172,7 +174,8 @@ def get_model(device):
     nb_params = sum(p.numel() for p in model.parameters())
     print(f"Total params: {nb_params:,}")
     return model
-
+#-----------------------------------------------------------------------------------------------
+# Data Loader
 def get_loader(
         database_path: str,
         seed: int,
@@ -244,7 +247,8 @@ def get_loader(
                             num_workers=8)
     
     return trn_loader, dev_loader, eval_loader
-
+#-----------------------------------------------------------------------------------------------
+# augmentation
 def augmentation(config):
     env_noise_dataset_path = config["env_noise_dataset_path"]
     manipulations = {
@@ -293,7 +297,8 @@ def augmentation(config):
     selected_transform = manipulations[selected_manipulation_key]
 
     return selected_manipulation_key, selected_transform
-
+#-----------------------------------------------------------------------------------------------
+# Preprocessing
 def preprocessing(is_train, trn_loader, dev_loader, model, encoder, criterion, optimizer, device, cut_length, config, selected_transform=None, augmentations_on_cpu=None, args=None):
     selected_manipulation_key, selected_transform = augmentation(config)
     for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(trn_loader, dev_loader)):
@@ -344,7 +349,8 @@ def preprocessing(is_train, trn_loader, dev_loader, model, encoder, criterion, o
         return audio_input
     else:
         return audio_input
-    
+#-----------------------------------------------------------------------------------------------
+# Eval(validation)
 def produce_evaluation_file(
     data_loader: DataLoader,
     model,
@@ -373,7 +379,8 @@ def produce_evaluation_file(
             assert fn == utt_id
             fh.write("{} {} {} {}\n".format(spk_id, utt_id, sco, key))
     print("Scores saved to {}".format(save_path))
-
+#-----------------------------------------------------------------------------------------------
+# Train
 def train_epoch(
     trn_loader: DataLoader,
     model,
@@ -432,7 +439,8 @@ def train_epoch(
 
     running_loss /= num_total
     return running_loss
-
+#-----------------------------------------------------------------------------------------------
+# Parser
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ASVspoof detection system")
     parser.add_argument("--config",
