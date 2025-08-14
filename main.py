@@ -366,8 +366,13 @@ def produce_evaluation_file(
             batch_x = batch_x[:, :cut_length]
         batch_x = batch_x.to(device)
         with torch.no_grad():
-            _, batch_out = model(batch_x)
-            batch_score = (batch_out[:, 1]).data.cpu().numpy().ravel()
+            out_stjgat, out_bldl = model(batch_x)
+            score_stjgat = out_stjgat[:, 1]
+            score_bldl = out_bldl[:, 1]
+            
+            fused_scores = 0.5 * score_stjgat + 0.5 * score_bldl
+            batch_score = fused_scores.data.cpu().numpy().ravel()
+            
         # add outputs
         fname_list.extend(utt_id)
         score_list.extend(batch_score.tolist())
