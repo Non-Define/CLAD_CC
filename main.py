@@ -132,7 +132,7 @@ def main(args: argparse.Namespace) -> None:
             cm_scores_file=score_file,
             output_file=metric_path/"dev_DCF_EER_{}epo.txt".format(epoch),
             printout=False)
-        print("DONE.\nLoss:{:.5f}, dev_eer: {:.3f}, dev_dcf:{:.5f} , dev_cllr:{:.5f}".format(
+        print("DONE.\nLoss:{:.5f}, dev_eer: {:.3f}, dev_dcf:{:.5f}, dev_cllr:{:.5f}".format(
             running_loss, dev_eer, dev_dcf, dev_cllr))
         
         writer.add_scalar("loss", running_loss, epoch)
