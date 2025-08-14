@@ -151,7 +151,7 @@ def main(args: argparse.Namespace) -> None:
             optimizer_swa.update_swa()
             n_swa_update += 1
         writer.add_scalar("best_dev_eer", best_dev_eer, epoch)
-        writer.add_scalar("best_dev_tdcf", best_dev_dcf, epoch)
+        writer.add_scalar("best_dev_dcf", best_dev_dcf, epoch)
         writer.add_scalar("best_dev_cllr", best_dev_cllr, epoch)
         writer.flush()
     writer.close() 
