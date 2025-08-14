@@ -325,10 +325,9 @@ def preprocessing(is_train, trn_loader, model, encoder, criterion, optimizer, de
                         transformed = selected_transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
 
                     if transformed.shape[-1] > audio_length:
-                        transformed = transformed[..., :audio_length]
+                        transformed = transformed[:, :audio_length]
                     elif transformed.shape[-1] < audio_length:
-                        pad_size = audio_length - transformed.shape[-1]
-                        transformed = F.pad(transformed, (0, pad_size))
+                        transformed = transformed.repeat(1, int(audio_length/transformed.shape[-1])+1)[:, :audio_length]
 
                     transformed = transformed.to(audio_input.device)
                     augmented_audio_list.append(transformed)
