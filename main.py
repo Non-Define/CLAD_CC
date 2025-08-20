@@ -1,5 +1,6 @@
 # Source: https://github.com/asvspoof-challenge/asvspoof5/tree/main/Baseline-AASIST
 # Original file: main.py, util.py, calculate_metrics.py, calculate_modules.py
+# Note: This file is adapted from the original repository
 #-----------------------------------------------------------------------------------------------
 # import
 import argparse
