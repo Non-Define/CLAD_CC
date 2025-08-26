@@ -408,8 +408,7 @@ class TrainDataset(Dataset):
     def __getitem__(self, index):
         key = self.list_IDs[index]
         X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        X_pad = pad_random(X, self.cut)
-        x_inp = Tensor(X_pad)
+        x_inp = Tensor(X)
         y = self.labels[key]
         return x_inp, y
 
@@ -428,8 +427,7 @@ class TestDataset(Dataset):
     def __getitem__(self, index):
         key = self.list_IDs[index]
         X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        X_pad = pad(X, self.cut)
-        x_inp = Tensor(X_pad)
+        x_inp = Tensor(X)
         return x_inp, key
     
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
