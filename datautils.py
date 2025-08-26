@@ -446,7 +446,7 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
                 print(f"잘못된 라인: {line}")
                 continue
             key = parts[1]
-            label = parts[9]
+            label = parts[8]
             file_list.append(key)
             d_meta[key] = 1 if label == "bonafide" else 0
         return d_meta, file_list
@@ -468,7 +468,7 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
                 print(f"잘못된 라인: {line}")
                 continue
             key = parts[1]
-            label = parts[9]
+            label = parts[8]
             file_list.append(key)
             d_meta[key] = 1 if label == "bonafide" else 0
         return d_meta, file_list
