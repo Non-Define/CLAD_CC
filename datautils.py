@@ -456,9 +456,11 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
                 print(f"잘못된 라인: {line}")
                 continue
             key = parts[1]
+            label = parts[8]
             file_list.append(key)
-        return file_list
-
+            d_meta[key] = 1 if label == "bonafide" else 0
+        return d_meta, file_list
+        
     else:
         for line in l_meta:
             parts = line.strip().split()
