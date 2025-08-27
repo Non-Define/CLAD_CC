@@ -395,12 +395,10 @@ class AddZeroPadding(nn.Module):
 #-----------------------------------------------------------------------------------------------
 class TrainDataset(Dataset):
     def __init__(self, list_IDs, labels, base_dir, cut=64600):
-        """self.list_IDs	: list of strings (each string: utt key),
-           self.labels      : dictionary (key: utt key, value: label integer)"""
         self.list_IDs = list_IDs
         self.labels = labels
         self.base_dir = base_dir
-        self.cut = cut  
+        self.cut = cut
 
     def __len__(self):
         return len(self.list_IDs)
@@ -408,15 +406,18 @@ class TrainDataset(Dataset):
     def __getitem__(self, index):
         key = self.list_IDs[index]
         X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        
+        if X.shape[-1] < self.cut:
+            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
+        elif X.shape[-1] > self.cut:
+            X = X[:self.cut]
+
         x_inp = Tensor(X)
         y = self.labels[key]
         return x_inp, y
 
-
 class TestDataset(Dataset):
     def __init__(self, list_IDs, base_dir, cut=64600):
-        """self.list_IDs	: list of strings (each string: utt key),
-        """
         self.list_IDs = list_IDs
         self.base_dir = base_dir
         self.cut = cut
@@ -427,6 +428,12 @@ class TestDataset(Dataset):
     def __getitem__(self, index):
         key = self.list_IDs[index]
         X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        
+        if X.shape[-1] < self.cut:
+            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
+        elif X.shape[-1] > self.cut:
+            X = X[:self.cut]
+
         x_inp = Tensor(X)
         return x_inp, key
     
