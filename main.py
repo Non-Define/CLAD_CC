@@ -220,9 +220,9 @@ def get_loader(
                             num_workers=8)
     #---------------------------------------------------------------------------------------------------------------------------
     # validate
-    _, file_dev = genSpoof_list(dir_meta=dev_trial_path,
-                                is_train=False,
-                                is_eval=False)
+    file_dev = genSpoof_list(dir_meta=dev_trial_path,
+                                        is_train=False,
+                                        is_eval=False)
     print("no. validation files:", len(file_dev))
 
     dev_set = TestDataset(list_IDs=file_dev,
