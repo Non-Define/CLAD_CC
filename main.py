@@ -22,7 +22,7 @@ from torchcontrib.optim import SWA
 
 from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, TrainDataset, TestDataset
 from o_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
-from transformers import Wav2Vec2Model
+from transformers import Wav2Vec2Model, WavLMModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
 from evaluation.calculate_modules import * 
@@ -67,7 +67,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "XLSR(ORIG)_{}_64600".format(selected_manipulation_key)
+    model_tag = "WavLM(ORIG)_{}_64600".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -163,15 +163,15 @@ def main(args: argparse.Namespace) -> None:
 class CombinedModel(nn.Module):
     def __init__(self, device):
         super().__init__()
-        self.wav2vec_model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m").to(device)
+        self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
         self.backbone = Model().to(device)
-        for param in self.wav2vec_model.parameters():
+        for param in self.wavlm_model.parameters():
             param.requires_grad = False
 
     def forward(self, audio_input):
-        outputs = self.wav2vec_model(audio_input)
-        xlsr_features = outputs.last_hidden_state
-        out_stjgat, out_bldl = self.backbone(xlsr_features)
+        outputs = self.wavlm_model(audio_input)
+        wavlm_features = outputs.last_hidden_state
+        out_stjgat, out_bldl = self.backbone(wavlm_features)
         return out_stjgat, out_bldl
 
 def get_model(device):
