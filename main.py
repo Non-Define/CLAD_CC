@@ -21,7 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
 from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, TrainDataset, TestDataset
-from o_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
+from model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
 from transformers import Wav2Vec2Model, WavLMModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
@@ -298,7 +298,7 @@ def augmentation(config):
         "resample_16500": ResampleAugmentation([16500]),
         "resample_17000": ResampleAugmentation([17000]),
     }
-    selected_manipulation_key = "no_augmentation"
+    selected_manipulation_key = "volume_change_50"
     selected_transform = manipulations[selected_manipulation_key]
 
     return selected_manipulation_key, selected_transform
