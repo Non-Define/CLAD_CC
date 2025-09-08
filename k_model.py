@@ -11,11 +11,6 @@ from torch import Tensor
 
 from typing import Callable, Optional, Union
 from transformers import Wav2Vec2Model
-
-'''
-model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-xls-r-300m")
-print(model.config)
-'''
 #----------------------------------------------------------------------------------------------------
 # Conv Layers
 class ConvLayers(nn.Module):
