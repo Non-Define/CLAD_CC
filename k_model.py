@@ -10,7 +10,6 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from typing import Callable, Optional, Union
-from transformers import Wav2Vec2Model
 #----------------------------------------------------------------------------------------------------
 # Conv Layers
 class ConvLayers(nn.Module):
