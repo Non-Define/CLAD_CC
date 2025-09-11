@@ -22,7 +22,7 @@ from torchcontrib.optim import SWA
 
 from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, TrainDataset, TestDataset
 from k_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
-from transformers import Wav2Vec2Model, WavLMModel
+from transformers import Wav2Vec2Model, WavLMModel, HubertModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
 from evaluation.calculate_modules import * 
@@ -67,7 +67,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "WavLM(ORIG)_{}_64600".format(selected_manipulation_key)
+    model_tag = "HuBERT(ORIG)_{}_64600".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -163,15 +163,20 @@ def main(args: argparse.Namespace) -> None:
 class CombinedModel(nn.Module):
     def __init__(self, device):
         super().__init__()
-        self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
+        self.hubert_model = HubertModel.from_pretrained("facebook/hubert-large-ll60k").to(device)
         self.backbone = Model().to(device)
-        for param in self.wavlm_model.parameters():
+        
+        for param in self.hubert_model.parameters():
             param.requires_grad = False
+            
+        for name, param in self.hubert_model.named_parameters():
+            if "pos_conv_embed" in name:
+                param.requires_grad = True
 
     def forward(self, audio_input):
-        outputs = self.wavlm_model(audio_input)
-        wavlm_features = outputs.last_hidden_state
-        out_stjgat, out_bldl = self.backbone(wavlm_features)
+        outputs = self.hubert_model(audio_input)
+        hubert_features = outputs.last_hidden_state
+        out_stjgat, out_bldl = self.backbone(hubert_features)
         return out_stjgat, out_bldl
 
 def get_model(device):
@@ -298,7 +303,7 @@ def augmentation(config):
         "resample_16500": ResampleAugmentation([16500]),
         "resample_17000": ResampleAugmentation([17000]),
     }
-    selected_manipulation_key = "volume_change_50"
+    selected_manipulation_key = "no_augmentation"
     selected_transform = manipulations[selected_manipulation_key]
 
     return selected_manipulation_key, selected_transform
