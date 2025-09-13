@@ -333,7 +333,7 @@ Temporal Variability and Multi-Viewed Self-Supervised Representations to Tackle 
 '''
 class FreqMask(torch.nn.Module):
     def __init__(self, sample_rate=16000, n_fft=512, hop_length=128,
-                 cutoff_choices=[4000, 5000, 6000, 7000], prob=1.0):
+                 cutoff_choices=[4000], prob=1.0):
         super().__init__()
         self.sample_rate = sample_rate
         self.n_fft = n_fft
