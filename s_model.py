@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from torchvision.models.resnet import resnet101, ResNet101_Weights
+from torchvision.models import resnext101_32x8d, ResNeXt101_32X8D_Weights
 
 from typing import Callable, Optional, Union
 #----------------------------------------------------------------------------------------------------
@@ -392,8 +394,60 @@ class STJGAT(nn.Module):
 # Time Branch
 #----------------------------------------------------------------------------------------------------
 # ResNet-101
+class ResNet101(nn.Module):
+    def __init__(self, out_dim=512, pretrained=True):
+        super(ResNet101, self).__init__()
+        
+        weights = ResNet101_Weights.DEFAULT if pretrained else None
+        self.backbone = resnet101(weights=weights)
+        
+        # because we use MFCC,LFCC,LPS
+        original_conv1 = self.backbone.conv1
+        self.backbone.conv1 = nn.Conv2d(
+            in_channels=1,
+            out_channels=original_conv1.out_channels,
+            kernel_size=original_conv1.kernel_size,
+            stride=original_conv1.stride,
+            padding=original_conv1.padding,
+            bias=False
+        )
+        
+        num_features = self.backbone.fc.in_features
+        self.backbone.fc = nn.Linear(num_features, out_dim)
 
+    def forward(self, x_mfcc, x_lfcc):
+        out_mfcc = self.backbone(x_mfcc)
+        out_lfcc = self.backbone(x_lfcc)
+        
+        return out_mfcc, out_lfcc
+#----------------------------------------------------------------------------------------------------
+# ResNeXt-101
+class ResNeXt101(nn.Module):
+    def __init__(self, out_dim=512, pretrained=True):
+        super(ResNeXt101, self).__init__()
+        
+        weights = ResNeXt101_32X8D_Weights.DEFAULT if pretrained else None
+        self.backbone = resnext101_32x8d(weights=weights)
+        
+        # because we use MFCC,LFCC,LPS
+        original_conv1 = self.backbone.conv1
+        self.backbone.conv1 = nn.Conv2d(
+            in_channels=1,
+            out_channels=original_conv1.out_channels,
+            kernel_size=original_conv1.kernel_size,
+            stride=original_conv1.stride,
+            padding=original_conv1.padding,
+            bias=False
+        )
+        
+        num_features = self.backbone.fc.in_features
+        self.backbone.fc = nn.Linear(num_features, out_dim)
 
+    def forward(self, x_mfcc, x_lfcc):
+        out_mfcc = self.backbone(x_mfcc)
+        out_lfcc = self.backbone(x_lfcc)
+        
+        return out_mfcc, out_lfcc
 
 
 
