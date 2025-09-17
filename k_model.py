@@ -439,9 +439,5 @@ class Model(nn.Module):
         x = self.SEre2blocks(x)      # (B, 25, 16, 32)
         out_stj = self.stjgat(x)     # (B, 2) — logits
         out_bldl = self.bldl(x)      # (B, 2) — logits
-        '''
-        loss_stj = criterion(out_stj, label)   # weighted CE
-        loss_bldl = criterion(out_bldl, label) # weighted CE
-        final_loss = 0.5 * loss_stj + 0.5 * loss_bldl
-        ''' 
+
         return out_stj, out_bldl
