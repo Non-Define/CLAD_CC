@@ -287,6 +287,8 @@ def augmentation(config):
         "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
         "freq_mask_03": FreqMask(prob=0.3),
         "freq_mask_05": FreqMask(prob=0.5),
+        "time_mask_03": TimeMask(time_mask_param=10000, prob=0.3),
+        "time_mask_05": TimeMask(time_mask_param=10000, prob=1.0),
         "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
         "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
         "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
@@ -299,7 +301,7 @@ def augmentation(config):
         "resample_16500": ResampleAugmentation([16500]),
         "resample_17000": ResampleAugmentation([17000]),
     }
-    selected_manipulation_key = "env_noise_coughing"
+    selected_manipulation_key = "freq_mask_03"
     selected_transform = manipulations[selected_manipulation_key]
 
     return selected_manipulation_key, selected_transform
