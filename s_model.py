@@ -148,8 +148,6 @@ class BLDL(nn.Module):
                             hidden_size=hidden_size, 
                             num_layers=num_layers)
         self.gap = nn.AdaptiveAvgPool1d(1)  # (B, hidden*2, T) → (B, hidden*2, 1)
-        self.fc1 = nn.Linear(hidden_size * 2, 128)  
-        self.fc2 = nn.Linear(128, 2)  
 
     def forward(self, x):
         """
@@ -163,8 +161,7 @@ class BLDL(nn.Module):
         out = out.permute(0, 2, 1)  # (B, 512, T)
         out = self.gap(out)         # (B, 512, 1)
         out = out.squeeze(-1)       # (B, 512)
-        out = self.fc1(out)         # FC1
-        out = self.fc2(out)         # FC2
+
         return out
 #----------------------------------------------------------------------------------------------------
 # STJ-GAT
