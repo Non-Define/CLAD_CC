@@ -395,7 +395,7 @@ class STJGAT(nn.Module):
 #----------------------------------------------------------------------------------------------------
 # ResNet-101
 class ResNet101(nn.Module):
-    def __init__(self, out_dim=512, pretrained=True):
+    def __init__(self, out_dim=512, pretrained=False):
         super(ResNet101, self).__init__()
         
         weights = ResNet101_Weights.DEFAULT if pretrained else None
@@ -423,7 +423,7 @@ class ResNet101(nn.Module):
 #----------------------------------------------------------------------------------------------------
 # ResNeXt-101
 class ResNeXt101(nn.Module):
-    def __init__(self, out_dim=512, pretrained=True):
+    def __init__(self, out_dim=512, pretrained=False):
         super(ResNeXt101, self).__init__()
         
         weights = ResNeXt101_32X8D_Weights.DEFAULT if pretrained else None
