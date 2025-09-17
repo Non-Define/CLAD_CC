@@ -10,11 +10,11 @@ import timestretch
 import json
 import numpy as np
 import soundfile as sf
-
 import torchaudio
+
 import torch
-from torch import Tensor
 import torch.nn as nn
+from torch import Tensor
 from torch.utils.data import Dataset
 #------------------------------------------------------------------------------------------------
 class AddWhiteNoise(nn.Module):
@@ -326,6 +326,22 @@ class TimeShift(nn.Module):
             min_shift = self.min_shift
         shift_len = random.randint(min_shift, max_shift)
         return self.time_shift(audio, shift_len)
+
+class TimeMask(nn.Module):
+    def __init__(self, time_mask_param: int, p: float = 1.0):
+        super(TimeMask, self).__init__()
+        self.time_mask_param = time_mask_param
+        self.p = p
+        self.mask_layer = torchaudio.transforms.TimeMasking(time_mask_param=self.time_mask_param)
+
+    def time_mask(self, x: torch.Tensor):
+        if random.random() < self.p:
+            return self.mask_layer(x)
+        else:
+            return x
+
+    def forward(self, x: torch.Tensor):
+        return self.time_mask(x)
 '''
 This code was referenced from
 Temporal Variability and Multi-Viewed Self-Supervised Representations to Tackle the ASVspoof5 Deepfake Challenge.
