@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
-from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, FreqMask, AddZeroPadding, TrainDataset, TestDataset
+from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding, TrainDataset, TestDataset
 from k_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
 from transformers import WavLMModel
 
@@ -287,8 +287,8 @@ def augmentation(config):
         "time_shift_32000": TimeShift(max_shift=32000, min_shift=32000),
         "freq_mask_03": FreqMask(prob=0.3),
         "freq_mask_05": FreqMask(prob=0.5),
-        "time_mask_03": TimeMask(time_mask_param=10000, prob=0.3),
-        "time_mask_05": TimeMask(time_mask_param=10000, prob=1.0),
+        "time_mask_03": TimeMask(time_mask_param=10000, p=0.3),
+        "time_mask_05": TimeMask(time_mask_param=10000, p=1.0),
         "fade_50_linear": AddFade(max_fade_size=0.5,fade_shape='linear', fix_fade_size=True),
         "fade_30_linear": AddFade(max_fade_size=0.3,fade_shape='linear', fix_fade_size=True),
         "fade_10_linear": AddFade(max_fade_size=0.1,fade_shape='linear', fix_fade_size=True),
