@@ -372,7 +372,7 @@ class FreqMask(torch.nn.Module):
         )
         freqs = np.fft.rfftfreq(self.n_fft, d=1.0 / self.sample_rate)
         cutoff = random.choice(self.cutoff_choices)
-        high_freq_indices = np.where(freqs > cutoff)[0]
+        high_freq_indices = np.where(freqs < cutoff)[0]
         stft[:, high_freq_indices, :] = 0
 
         augmented_waveform = torch.istft(
