@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
-from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding, TrainDataset, TestDataset
+from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
 from k_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
 from transformers import WavLMModel
 
@@ -67,7 +67,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "WavLM(ORIG)_{}_64600".format(selected_manipulation_key)
+    model_tag = "WavLM(ORIG)_h_{}_64600".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -301,7 +301,7 @@ def augmentation(config):
         "resample_16500": ResampleAugmentation([16500]),
         "resample_17000": ResampleAugmentation([17000]),
     }
-    selected_manipulation_key = "time_mask_03"
+    selected_manipulation_key = "freq_mask_03"
     selected_transform = manipulations[selected_manipulation_key]
 
     return selected_manipulation_key, selected_transform
