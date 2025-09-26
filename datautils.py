@@ -492,39 +492,3 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
             file_list.append(key)
         return file_list
         
-def pad(x, max_len=64600):
-    x_len = x.shape[0]
-    if x_len >= max_len:
-        return x[:max_len]
-    # need to pad
-    num_repeats = int(max_len / x_len) + 1
-    padded_x = np.tile(x, (1, num_repeats))[:, :max_len][0]
-    return padded_x
-
-
-def pad_random(x: np.ndarray, max_len: int = 64600):
-    x_len = x.shape[0]
-    # if duration is already long enough
-    if x_len >= max_len:
-        stt = np.random.randint(x_len - max_len)
-        return x[stt:stt + max_len]
-
-    # if too short
-    num_repeats = int(max_len / x_len) + 1
-    padded_x = np.tile(x, (num_repeats))[:max_len]
-    return padded_x
-
-# A upgraded version of pad_or_clip function, which can process batched audio, zero padding or  clipping them to the same length
-def pad_or_clip_batch(audio, audio_len, random_clip=True):
-        '''
-        Pad or randomly clip the audio to make it of length audio_len
-        '''
-        if audio.shape[-1] < audio_len:
-            audio = torch.nn.functional.pad(audio, (0, audio_len - audio.shape[-1]))
-        elif audio.shape[-1] > audio_len:
-            if random_clip == True:
-                # randomly clip the audio
-                start = random.randint(0, audio.shape[-1] - audio_len)
-            else:
-                start = 0 # clip from the beginning, which is the standard implementation of AASIST and RawNet2
-                audio = audio[:, start:start+ audio_len]
