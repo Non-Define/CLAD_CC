@@ -67,7 +67,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "WavLM(ORIG)_{}_128000".format(selected_manipulation_key)
+    model_tag = "WavLM(ORIG)_{}_96000".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -197,7 +197,7 @@ def get_loader(
                       "ASVspoof5.dev.track_1.tsv")
     eval_trial_path = (database_path / 
                        "ASVspoof5.eval.track_1.tsv")
-    cut = 128000
+    cut = 96000
     #---------------------------------------------------------------------------------------------------------------------------
     # train
     d_label_trn, file_train = genSpoof_list(dir_meta=trn_list_path,
@@ -362,7 +362,7 @@ def produce_evaluation_file(
         trial_lines = f_trl.readlines()
     fname_list = []
     score_list = []
-    cut_length = 128000
+    cut_length = 96000
     
     for batch_x, utt_id in tqdm(data_loader):
         if batch_x.shape[-1] < cut_length:
@@ -421,7 +421,7 @@ def train_epoch(
             optimizer=None,
             config=config,
             device=device,
-            cut_length=128000,
+            cut_length=96000,
             selected_transform=selected_transform,
             augmentations_on_cpu=None
         )
