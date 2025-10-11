@@ -462,7 +462,7 @@ if __name__ == "__main__":
         dest="output_dir",
         type=str,
         help="output directory for results",
-        default="./exp_result",
+        default="./k_exp_result",
     )
     parser.add_argument("--seed",
                         type=int,
