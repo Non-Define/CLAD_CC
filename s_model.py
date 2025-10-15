@@ -169,102 +169,7 @@ class BLDL(nn.Module):
 AASIST
 Copyright (c) 2021-present NAVER Corp.
 MIT license
-"""
-class GraphAttentionLayer(nn.Module):
-    def __init__(self, in_dim, out_dim, **kwargs):
-        super().__init__()
-
-        # attention map
-        self.att_proj = nn.Linear(in_dim, out_dim)
-        self.att_weight = self._init_new_params(out_dim, 1)
-
-        # project
-        self.proj_with_att = nn.Linear(in_dim, out_dim)
-        self.proj_without_att = nn.Linear(in_dim, out_dim)
-
-        # batch norm
-        self.bn = nn.BatchNorm1d(out_dim)
-
-        # dropout for inputs
-        self.input_drop = nn.Dropout(p=0.2)
-
-        # activate
-        self.act = nn.SELU(inplace=True)
-
-        # temperature
-        self.temp = 1.
-        if "temperature" in kwargs:
-            self.temp = kwargs["temperature"]
-
-    def forward(self, x):
-        '''
-        x   :(#bs, #node, #dim)
-        '''
-        # apply input dropout
-        x = self.input_drop(x)
-
-        # derive attention map
-        att_map = self._derive_att_map(x)
-
-        # projection
-        x = self._project(x, att_map)
-
-        # apply batch norm
-        x = self._apply_BN(x)
-        x = self.act(x)
-        return x
-
-    def _pairwise_mul_nodes(self, x):
-        '''
-        Calculates pairwise multiplication of nodes.
-        - for attention map
-        x           :(#bs, #node, #dim)
-        out_shape   :(#bs, #node, #node, #dim)
-        '''
-
-        nb_nodes = x.size(1)
-        x = x.unsqueeze(2).expand(-1, -1, nb_nodes, -1)
-        x_mirror = x.transpose(1, 2)
-
-        return x * x_mirror
-
-    def _derive_att_map(self, x):
-        '''
-        x           :(#bs, #node, #dim)
-        out_shape   :(#bs, #node, #node, 1)
-        '''
-        att_map = self._pairwise_mul_nodes(x)
-        # size: (#bs, #node, #node, #dim_out)
-        att_map = torch.tanh(self.att_proj(att_map))
-        # size: (#bs, #node, #node, 1)
-        att_map = torch.matmul(att_map, self.att_weight)
-
-        # apply temperature
-        att_map = att_map / self.temp
-
-        att_map = F.softmax(att_map, dim=-2)
-
-        return att_map
-
-    def _project(self, x, att_map):
-        x1 = self.proj_with_att(torch.matmul(att_map.squeeze(-1), x))
-        x2 = self.proj_without_att(x)
-
-        return x1 + x2
-
-    def _apply_BN(self, x):
-        org_size = x.size()
-        x = x.view(-1, org_size[-1])
-        x = self.bn(x)
-        x = x.view(org_size)
-
-        return x
-
-    def _init_new_params(self, *size):
-        out = nn.Parameter(torch.FloatTensor(*size))
-        nn.init.xavier_normal_(out)
-        return out
-    
+""" 
 class GraphPool(nn.Module):
     def __init__(self, k: float, in_dim: int, p: Union[float, int]):
         super().__init__()
@@ -313,19 +218,13 @@ class STJGAT(nn.Module):
         self.bn = nn.BatchNorm2d(in_channels)
         self.conv2 = nn.Conv2d(in_channels, 1, kernel_size=1, padding=0)  
 
-        # GAT for FC and TC
-        self.gat_fc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
-        self.gat_tc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
+        # 1D CNN for TC
+        self.conv3 = nn.Conv1D()
 
-        # GPooling for FC and TC
-        self.gpool_fc = GraphPool(k=k, in_dim=out_dim, p=dropout)
+        # GPooling for TC
         self.gpool_tc = GraphPool(k=k, in_dim=out_dim, p=dropout)
         
-        # Cross-attention weight matrices
-        self.W1 = nn.Linear(out_dim, out_dim, bias=False)
-        self.W2 = nn.Linear(out_dim, out_dim, bias=False)
-        
-        # FC for Classifier
+        # FC Layer for Classifier
         self.fc = nn.Linear(out_dim * 2, 2)
 
     def forward(self, x):
@@ -348,42 +247,13 @@ class STJGAT(nn.Module):
         M0 = F.softmax(out, dim=1)  # (B, T, F)
         M0_exp = M0.unsqueeze(-1)  # (B, T, F, 1)
 
-        FCatt = torch.sum(M0_exp * x, dim=1)  # (B, F, C)
         TCatt = torch.sum(M0_exp * x, dim=2)  # (B, T, C)
-
-        # GAT
-        FC_gat = self.gat_fc(FCatt)  # (B, F, out_dim)
-        TC_gat = self.gat_tc(TCatt)  # (B, T, out_dim)
+        
+        # 1d cnn 넣기 
 
         # Gpooling
-        FC_graph = self.gpool_fc(FC_gat)  # (B, F', out_dim)
         TC_graph = self.gpool_tc(TC_gat)  # (B, T', out_dim)
         
-        # Cross Attention
-        # FC_graph: (B, NF, d), TC_graph: (B, NT, d)
-        xF = FC_graph
-        xT = TC_graph
-
-        # 1. W1, W2 projection
-        xF_proj = self.W1(xF)  # (B, NF, d)
-        xT_proj = self.W2(xT)  # (B, NT, d)
-
-        # 2. M1 = softmax(xF_proj @ xT^T)
-        M1 = torch.softmax(torch.matmul(xF_proj, xT.transpose(1, 2)), dim=-1)  # (B, NF, NT)
-
-        # 3. M2 = softmax(xT_proj @ xF^T)
-        M2 = torch.softmax(torch.matmul(xT_proj, xF.transpose(1, 2)), dim=-1)  # (B, NT, NF)
-
-        # 4. Attention-based fusion
-        xF_fused = xF + torch.matmul(M1, xT)  # (B, NF, d)
-        xT_fused = xT + torch.matmul(M2, xF)  # (B, NT, d)
-
-        # 5. Node-wise max pooling 
-        node_F = torch.max(xF_fused, dim=1)[0]  # (B, d)
-        node_T = torch.max(xT_fused, dim=1)[0]  # (B, d)
-
-        # 6. Final output
-        fused_node = torch.cat([node_F, node_T], dim=-1)  # (B, 2d)
         out = self.fc(fused_node)  # (B, 2) → binary classification
 
         return out
