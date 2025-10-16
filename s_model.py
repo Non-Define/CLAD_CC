@@ -231,7 +231,6 @@ class STJGAT(nn.Module):
         """
         x: (B, T, F, C)  — SE-Re2blocks output
         return:
-        FC_graph: (B, F', out_dim)
         TC_graph: (B, T', out_dim)
         """
         B, T, F_, C = x.shape
