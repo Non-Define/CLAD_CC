@@ -220,10 +220,8 @@ class STJGAT(nn.Module):
 
         # 1D CNN for TC
         self.conv3 = nn.Conv1D()
-
         # GPooling for TC
         self.gpool_tc = GraphPool(k=k, in_dim=out_dim, p=dropout)
-        
         # FC Layer for Classifier
         self.fc = nn.Linear(out_dim * 2, 2)
 
