@@ -243,7 +243,6 @@ class STJGAT(nn.Module):
         
         M0 = F.softmax(out, dim=1)  # (B, T, F)
         M0_exp = M0.unsqueeze(-1)  # (B, T, F, 1)
-
         TCatt = torch.sum(M0_exp * x, dim=2)  # (B, T, C)
         
         # 1d cnn 넣기 
