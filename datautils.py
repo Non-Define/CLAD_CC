@@ -355,11 +355,11 @@ class FreqMask(torch.nn.Module):
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.cutoff_choices = cutoff_choices
-        self.prob = prob  # 적용 확률
+        self.prob = prob  
 
     def forward(self, waveform):
         if random.random() > self.prob:
-            return waveform  # 확률보다 크면 그대로 반환
+            return waveform  
 
         if waveform.dim() == 1:
             waveform = waveform.unsqueeze(0)
