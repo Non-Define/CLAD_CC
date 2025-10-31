@@ -4,6 +4,9 @@ import random
 import numpy as np
 from typing import Union
 
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -267,35 +270,22 @@ class GraphAttentionLayer(nn.Module):
         return out
 
 class STJGAT(nn.Module):
-    def __init__(self, in_channels=32, out_dim=32, k=0.5, dropout=0.2):
+    def __init__(self, in_channels=32, out_dim=32, dropout=0.2):
         super().__init__()
+        
         # Mo (Attention map)
         self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=1, padding=0)
         self.activation = nn.SELU(inplace=True)
         self.bn = nn.BatchNorm2d(in_channels)
         self.conv2 = nn.Conv2d(in_channels, 1, kernel_size=1, padding=0)  
 
-        # GAT for FC and TC
-        self.gat_fc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
+        # GAT for TC
         self.gat_tc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
-
-        # GPooling for FC and TC
-        self.gpool_fc = GraphPool(k=k, in_dim=out_dim, p=dropout)
-        self.gpool_tc = GraphPool(k=k, in_dim=out_dim, p=dropout)
-        
-        # Cross-attention weight matrices
-        self.W1 = nn.Linear(out_dim, out_dim, bias=False)
-        self.W2 = nn.Linear(out_dim, out_dim, bias=False)
-        
-        # FC for Classifier
-        self.fc = nn.Linear(out_dim * 2, 2)
 
     def forward(self, x):
         """
         x: (B, T, F, C)  — SE-Re2blocks output
-        return:
-        FC_graph: (B, F', out_dim)
-        TC_graph: (B, T', out_dim)
+        return: (B, 512)
         """
         B, T, F_, C = x.shape
         
@@ -309,48 +299,16 @@ class STJGAT(nn.Module):
         
         M0 = F.softmax(out, dim=1)  # (B, T, F)
         M0_exp = M0.unsqueeze(-1)  # (B, T, F, 1)
-
-        FCatt = torch.sum(M0_exp * x, dim=1)  # (B, F, C)
         TCatt = torch.sum(M0_exp * x, dim=2)  # (B, T, C)
 
         # GAT
-        FC_gat = self.gat_fc(FCatt)  # (B, F, out_dim)
         TC_gat = self.gat_tc(TCatt)  # (B, T, out_dim)
-
-        # Gpooling
-        FC_graph = self.gpool_fc(FC_gat)  # (B, F', out_dim)
-        TC_graph = self.gpool_tc(TC_gat)  # (B, T', out_dim)
-        
-        # Cross Attention
-        # FC_graph: (B, NF, d), TC_graph: (B, NT, d)
-        xF = FC_graph
-        xT = TC_graph
-
-        # 1. W1, W2 projection
-        xF_proj = self.W1(xF)  # (B, NF, d)
-        xT_proj = self.W2(xT)  # (B, NT, d)
-
-        # 2. M1 = softmax(xF_proj @ xT^T)
-        M1 = torch.softmax(torch.matmul(xF_proj, xT.transpose(1, 2)), dim=-1)  # (B, NF, NT)
-
-        # 3. M2 = softmax(xT_proj @ xF^T)
-        M2 = torch.softmax(torch.matmul(xT_proj, xF.transpose(1, 2)), dim=-1)  # (B, NT, NF)
-
-        # 4. Attention-based fusion
-        xF_fused = xF + torch.matmul(M1, xT)  # (B, NF, d)
-        xT_fused = xT + torch.matmul(M2, xF)  # (B, NT, d)
-
-        # 5. Node-wise max pooling 
-        node_F = torch.max(xF_fused, dim=1)[0]  # (B, d)
-        node_T = torch.max(xT_fused, dim=1)[0]  # (B, d)
-
-        # 6. Final output
-        fused_node = torch.cat([node_F, node_T], dim=-1)  # (B, 2d)
-        out = self.fc(fused_node)  # (B, 2) → binary classification
-
+        out = TC_gat.view(B, -1)
+        print("stjgat 출력", out.shape)
+   
         return out
 #----------------------------------------------------------------------------------------------------
-# Time Branch
+# Freq Branch
 #----------------------------------------------------------------------------------------------------
 # ResNet-101
 class ResNet101(nn.Module):
@@ -474,12 +432,14 @@ class Model(nn.Module):
             ),
         )
         
-        self.stjgat = STJGAT(in_channels=32, out_dim=32, k=0.5, dropout=0.2)
+        self.stjgat = STJGAT(in_channels=32, out_dim=32, dropout=0.2)
         self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
 
     def forward(self, x):
         x = self.convlayers(x)       # (B, 201, 256, 32)
+        print("conv 출력", x.shape)
         x = self.SEre2blocks(x)      # (B, 25, 16, 32)
+        print("sere2 출력", x.shape)
         out_stj = self.stjgat(x)     # (B, 2) — logits
         out_bldl = self.bldl(x)      # (B, 2) — logits
 
