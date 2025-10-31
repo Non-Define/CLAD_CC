@@ -281,6 +281,7 @@ class STJGAT(nn.Module):
 
         # GAT for TC
         self.gat_tc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
+        self.fc_proj = nn.Linear(in_features=25 * out_dim, out_features=512)
 
     def forward(self, x):
         """
@@ -303,7 +304,8 @@ class STJGAT(nn.Module):
 
         # GAT
         TC_gat = self.gat_tc(TCatt)  # (B, T, out_dim)
-        out = TC_gat.view(B, -1)
+        TC_comp = TC_gat.view(B, -1)
+        out = self.fc_proj(TC_comp)
         print("stjgat 출력", out.shape)
    
         return out
@@ -366,9 +368,30 @@ class ResNeXt101(nn.Module):
         
         return out_mfcc, out_lfcc
 
+class FeatureFusionMHA(nn.Module):
+    def __init__(self, embed_dim=512, num_heads=4):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.mha = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
+        self.norm = nn.LayerNorm(embed_dim)
+        
+    def forward(self, bldl_out, stjgat_out, mfcc_out, lfcc_out):
 
+        bldl_in = bldl_out.unsqueeze(1)
+        stjgat_in = stjgat_out.unsqueeze(1)
+        mfcc_in = mfcc_out.unsqueeze(1)
+        lfcc_in = lfcc_out.unsqueeze(1)
 
+        seq_in = torch.cat([bldl_in, stjgat_in, mfcc_in, lfcc_in], dim=1)
+        attn_output, _ = self.mha(query=seq_in, key=seq_in, value=seq_in)
+        updated_seq = self.norm(attn_output + seq_in)
 
+        updated_bldl = updated_seq[:, 0, :]    # (B, E)
+        updated_stjgat = updated_seq[:, 1, :]  # (B, E)
+        updated_mfcc = updated_seq[:, 2, :]    # (B, E)
+        updated_lfcc = updated_seq[:, 3, :]    # (B, E)
+
+        return updated_bldl, updated_stjgat, updated_mfcc, updated_lfcc
 
 
 
