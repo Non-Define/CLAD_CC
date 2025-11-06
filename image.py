@@ -9,10 +9,21 @@ N_FFT = 1728
 HOP_LENGTH = 130      
 WINDOW_TYPE = 'blackman'
 SR = 16000            
-FIXED_T_FRAMES = 600  
+CUT_SAMPLES = 64000 
 
 def create_lps(y, sr=SR):
- 
+    
+    status = "Fixed"
+    audio_length = y.shape[-1]
+    
+    if audio_length < CUT_SAMPLES:
+        y = np.tile(y, int(CUT_SAMPLES / audio_length) + 1)[:CUT_SAMPLES]
+        status = "Padded (Samples)"
+        
+    elif audio_length > CUT_SAMPLES:
+        y = y[:CUT_SAMPLES]
+        status = "Truncated (Samples)"
+  
     stft_result = librosa.stft(
         y, 
         n_fft=N_FFT, 
@@ -22,24 +33,8 @@ def create_lps(y, sr=SR):
 
     magnitude_spectrogram = np.abs(stft_result)
     lps_db = librosa.amplitude_to_db(magnitude_spectrogram, ref=np.max)
-    time_frames = lps_db.shape[1]
-    
-    if time_frames > FIXED_T_FRAMES:
-        lps_fixed = lps_db[:, :FIXED_T_FRAMES]
-        status = "Truncated"
-        
-    elif time_frames < FIXED_T_FRAMES:
-        padding_needed = FIXED_T_FRAMES - time_frames
-        lps_fixed = np.pad(lps_db, 
-                           ((0, 0), (0, padding_needed)), 
-                           mode='constant', 
-                           constant_values=lps_db.min())
-        status = "Padded"
-    else:
-        lps_fixed = lps_db
-        status = "Fixed"
 
-    return lps_fixed, status
+    return lps_db, status 
 
 def save_lps_image(lps_data, output_filepath):
    
@@ -86,8 +81,8 @@ if __name__ == '__main__':
     # ----------------------------------------------------
     # TODO
     # ----------------------------------------------------
-    INPUT_AUDIO_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/flac_D'   # .flac
-    OUTPUT_IMAGE_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/image/lps_D'       # .png
+    INPUT_AUDIO_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/flac_T'   # .flac
+    OUTPUT_IMAGE_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/image/lps_T'       # .png
     # ------------------------------------------------------------------------
 
     process_audio_directory(INPUT_AUDIO_DIR, OUTPUT_IMAGE_DIR)
