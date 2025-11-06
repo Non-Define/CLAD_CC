@@ -304,6 +304,7 @@ class STJGAT(nn.Module):
 
         # GAT
         TC_gat = self.gat_tc(TCatt)  # (B, T, out_dim)
+        # 이 부분 PCA로 수정하기
         TC_comp = TC_gat.view(B, -1)
         out = self.fc_proj(TC_comp)
         print("stjgat 출력", out.shape)
@@ -323,7 +324,7 @@ class ResNet101(nn.Module):
         # because we use MFCC,LFCC,LPS
         original_conv1 = self.backbone.conv1
         self.backbone.conv1 = nn.Conv2d(
-            in_channels=1,
+            in_channels=3,
             out_channels=original_conv1.out_channels,
             kernel_size=original_conv1.kernel_size,
             stride=original_conv1.stride,
@@ -335,10 +336,10 @@ class ResNet101(nn.Module):
         self.backbone.fc = nn.Linear(num_features, out_dim)
 
     def forward(self, x_mfcc, x_lfcc):
-        out_mfcc = self.backbone(x_mfcc)
-        out_lfcc = self.backbone(x_lfcc)
+        out_lfreq = self.backbone(x_mfcc)
+        out_hfreq = self.backbone(x_lfcc)
         
-        return out_mfcc, out_lfcc
+        return out_lfreq, out_hfreq
 #----------------------------------------------------------------------------------------------------
 # ResNeXt-101
 class ResNeXt101(nn.Module):
@@ -351,7 +352,7 @@ class ResNeXt101(nn.Module):
         # because we use MFCC,LFCC,LPS
         original_conv1 = self.backbone.conv1
         self.backbone.conv1 = nn.Conv2d(
-            in_channels=1,
+            in_channels=3,
             out_channels=original_conv1.out_channels,
             kernel_size=original_conv1.kernel_size,
             stride=original_conv1.stride,
@@ -363,53 +364,36 @@ class ResNeXt101(nn.Module):
         self.backbone.fc = nn.Linear(num_features, out_dim)
 
     def forward(self, x_mfcc, x_lfcc):
-        out_mfcc = self.backbone(x_mfcc)
-        out_lfcc = self.backbone(x_lfcc)
+        out_lfreq = self.backbone(x_mfcc)
+        out_hfreq = self.backbone(x_lfcc)
         
-        return out_mfcc, out_lfcc
-
-class FeatureFusionMHA(nn.Module):
+        return out_lfreq, out_hfreq
+#----------------------------------------------------------------------------------------------------
+# Multi-Head Attention
+class MHA(nn.Module):
     def __init__(self, embed_dim=512, num_heads=4):
         super().__init__()
         self.embed_dim = embed_dim
         self.mha = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
         self.norm = nn.LayerNorm(embed_dim)
         
-    def forward(self, bldl_out, stjgat_out, mfcc_out, lfcc_out):
+    def forward(self, bldl_out, stjgat_out, out_lfreq, out_hfreq):
 
         bldl_in = bldl_out.unsqueeze(1)
         stjgat_in = stjgat_out.unsqueeze(1)
-        mfcc_in = mfcc_out.unsqueeze(1)
-        lfcc_in = lfcc_out.unsqueeze(1)
+        lfreq_in = out_lfreq.unsqueeze(1)
+        hfreq_in = out_hfreq.unsqueeze(1)
 
-        seq_in = torch.cat([bldl_in, stjgat_in, mfcc_in, lfcc_in], dim=1)
+        seq_in = torch.cat([bldl_in, stjgat_in, lfreq_in, hfreq_in], dim=1)
         attn_output, _ = self.mha(query=seq_in, key=seq_in, value=seq_in)
         updated_seq = self.norm(attn_output + seq_in)
 
-        updated_bldl = updated_seq[:, 0, :]    # (B, E)
-        updated_stjgat = updated_seq[:, 1, :]  # (B, E)
-        updated_mfcc = updated_seq[:, 2, :]    # (B, E)
-        updated_lfcc = updated_seq[:, 3, :]    # (B, E)
+        fianl_bldl = updated_seq[:, 0, :]    # (B, E)
+        final_stjgat = updated_seq[:, 1, :]  # (B, E)
+        final_lfreq = updated_seq[:, 2, :]    # (B, E)
+        final_hfreq = updated_seq[:, 3, :]    # (B, E)
 
-        return updated_bldl, updated_stjgat, updated_mfcc, updated_lfcc
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        return final_bldl, final_stjgat, final_lfreq, final_hfreq
 #----------------------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
@@ -460,9 +444,7 @@ class Model(nn.Module):
 
     def forward(self, x):
         x = self.convlayers(x)       # (B, 201, 256, 32)
-        print("conv 출력", x.shape)
         x = self.SEre2blocks(x)      # (B, 25, 16, 32)
-        print("sere2 출력", x.shape)
         out_stj = self.stjgat(x)     # (B, 2) — logits
         out_bldl = self.bldl(x)      # (B, 2) — logits
 
