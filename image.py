@@ -81,8 +81,8 @@ if __name__ == '__main__':
     # ----------------------------------------------------
     # TODO
     # ----------------------------------------------------
-    INPUT_AUDIO_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/flac_T'   # .flac
-    OUTPUT_IMAGE_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/image/lps_T'       # .png
+    INPUT_AUDIO_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/flac_D'   # .flac
+    OUTPUT_IMAGE_DIR = '/home/cnrl/Workspace/ND/Dataset/asvspoof_5/image/lps_D'       # .png
     # ------------------------------------------------------------------------
 
     process_audio_directory(INPUT_AUDIO_DIR, OUTPUT_IMAGE_DIR)
