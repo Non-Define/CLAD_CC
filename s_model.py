@@ -383,6 +383,36 @@ class MHA(nn.Module):
         self.embed_dim = embed_dim
         self.mha = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
         self.norm = nn.LayerNorm(embed_dim)
+        self.fusion_head = nn.Sequential(
+            nn.Linear(embed_dim * 4, embed_dim), 
+            nn.ReLU(),
+            nn.Dropout(0.2), 
+            nn.Linear(embed_dim, 2) 
+        )
+        self.fusion_head = nn.Sequential(
+            
+            nn.Linear(embed_dim * 4, 1024), 
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            
+            nn.Linear(64, 2) 
+        )
         
     def forward(self, bldl_out, stjgat_out, out_lfreq, out_hfreq):
 
@@ -394,13 +424,11 @@ class MHA(nn.Module):
         seq_in = torch.cat([bldl_in, stjgat_in, lfreq_in, hfreq_in], dim=1)
         attn_output, _ = self.mha(query=seq_in, key=seq_in, value=seq_in)
         updated_seq = self.norm(attn_output + seq_in)
+        fused_features = updated_seq.flatten(start_dim=1)
+        
+        out = self.fusion_head(fused_features)
 
-        fianl_bldl = updated_seq[:, 0, :]    # (B, E)
-        final_stjgat = updated_seq[:, 1, :]  # (B, E)
-        final_lfreq = updated_seq[:, 2, :]    # (B, E)
-        final_hfreq = updated_seq[:, 3, :]    # (B, E)
-
-        return final_bldl, final_stjgat, final_lfreq, final_hfreq
+        return out
 #----------------------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
