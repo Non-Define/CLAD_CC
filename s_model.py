@@ -321,7 +321,7 @@ class ResNet101(nn.Module):
         weights = ResNet101_Weights.DEFAULT if pretrained else None
         self.backbone = resnet101(weights=weights)
         
-        # because we use MFCC,LFCC,LPS
+        # use LPS, Spectrogram
         original_conv1 = self.backbone.conv1
         self.backbone.conv1 = nn.Conv2d(
             in_channels=3,
@@ -331,13 +331,16 @@ class ResNet101(nn.Module):
             padding=original_conv1.padding,
             bias=False
         )
-        
         num_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Linear(num_features, out_dim)
 
-    def forward(self, x_mfcc, x_lfcc):
-        out_lfreq = self.backbone(x_mfcc)
-        out_hfreq = self.backbone(x_lfcc)
+    def forward(self, x_high, x_low):
+        """
+        x: (B, 3, 432, 480) - (Batch, RGB, H, W)
+        """
+        
+        out_lfreq = self.backbone(x_low)
+        out_hfreq = self.backbone(x_high)
         
         return out_lfreq, out_hfreq
 #----------------------------------------------------------------------------------------------------
@@ -349,7 +352,7 @@ class ResNeXt101(nn.Module):
         weights = ResNeXt101_32X8D_Weights.DEFAULT if pretrained else None
         self.backbone = resnext101_32x8d(weights=weights)
         
-        # because we use MFCC,LFCC,LPS
+        # use LPS, Spectrogram
         original_conv1 = self.backbone.conv1
         self.backbone.conv1 = nn.Conv2d(
             in_channels=3,
@@ -363,9 +366,13 @@ class ResNeXt101(nn.Module):
         num_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Linear(num_features, out_dim)
 
-    def forward(self, x_mfcc, x_lfcc):
-        out_lfreq = self.backbone(x_mfcc)
-        out_hfreq = self.backbone(x_lfcc)
+    def forward(self, x_lfreq, x_hfreq):
+        """
+        x: (B, 3, 432, 480) - (Batch, RGB, H, W)
+        """
+        
+        out_lfreq = self.backbone(x_lfreq)
+        out_hfreq = self.backbone(x_hfreq)
         
         return out_lfreq, out_hfreq
 #----------------------------------------------------------------------------------------------------
@@ -441,11 +448,12 @@ class Model(nn.Module):
         
         self.stjgat = STJGAT(in_channels=32, out_dim=32, dropout=0.2)
         self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
+        self.lfreq = ResNet101()
 
     def forward(self, x):
         x = self.convlayers(x)       # (B, 201, 256, 32)
         x = self.SEre2blocks(x)      # (B, 25, 16, 32)
-        out_stj = self.stjgat(x)     # (B, 2) — logits
-        out_bldl = self.bldl(x)      # (B, 2) — logits
+        out_stj = self.stjgat(x)     
+        out_bldl = self.bldl(x)      
 
         return out_stj, out_bldl
