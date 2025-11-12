@@ -305,9 +305,8 @@ class STJGAT(nn.Module):
         # GAT
         TC_gat = self.gat_tc(TCatt)  # (B, T, out_dim)
         # 이 부분 PCA로 수정하기
-        TC_comp = TC_gat.view(B, -1)
+        TC_comp = TC_gat.reshape(B, -1)
         out = self.fc_proj(TC_comp)
-        print("stjgat 출력", out.shape)
    
         return out
 #----------------------------------------------------------------------------------------------------
@@ -317,30 +316,42 @@ class STJGAT(nn.Module):
 class ResNet101(nn.Module):
     def __init__(self, out_dim=512, pretrained=False):
         super(ResNet101, self).__init__()
-        
         weights = ResNet101_Weights.DEFAULT if pretrained else None
-        self.backbone = resnet101(weights=weights)
         
-        # use LPS, Spectrogram
-        original_conv1 = self.backbone.conv1
-        self.backbone.conv1 = nn.Conv2d(
+        # low freq backbone
+        self.low_backbone = resnet101(weights=weights)
+        original_conv1_low = self.low_backbone.conv1
+        self.low_backbone.conv1 = nn.Conv2d(
             in_channels=3,
-            out_channels=original_conv1.out_channels,
-            kernel_size=original_conv1.kernel_size,
-            stride=original_conv1.stride,
-            padding=original_conv1.padding,
+            out_channels=original_conv1_low.out_channels,
+            kernel_size=original_conv1_low.kernel_size,
+            stride=original_conv1_low.stride,
+            padding=original_conv1_low.padding,
             bias=False
         )
-        num_features = self.backbone.fc.in_features
-        self.backbone.fc = nn.Linear(num_features, out_dim)
+        num_features_low = self.low_backbone.fc.in_features
+        self.low_backbone.fc = nn.Linear(num_features_low, out_dim)
 
-    def forward(self, x_high, x_low):
+        # high freq backbone
+        self.high_backbone = resnet101(weights=weights)
+        original_conv1_high = self.high_backbone.conv1
+        self.high_backbone.conv1 = nn.Conv2d(
+            in_channels=3,
+            out_channels=original_conv1_high.out_channels,
+            kernel_size=original_conv1_high.kernel_size,
+            stride=original_conv1_high.stride,
+            padding=original_conv1_high.padding,
+            bias=False
+        )
+        num_features_high = self.high_backbone.fc.in_features
+        self.high_backbone.fc = nn.Linear(num_features_high, out_dim)
+
+    def forward(self, x_low, x_high):
         """
-        x: (B, 3, 432, 480) - (Batch, RGB, H, W)
+        x: (B, 3, H, W) - (B, RGB, 432, 480)
         """
-        
-        out_lfreq = self.backbone(x_low)
-        out_hfreq = self.backbone(x_high)
+        out_lfreq = self.low_backbone(x_low)   
+        out_hfreq = self.high_backbone(x_high) 
         
         return out_lfreq, out_hfreq
 #----------------------------------------------------------------------------------------------------
@@ -348,32 +359,43 @@ class ResNet101(nn.Module):
 class ResNeXt101(nn.Module):
     def __init__(self, out_dim=512, pretrained=False):
         super(ResNeXt101, self).__init__()
+
+        weights = ResNeXt101_64X4D_Weights.DEFAULT if pretrained else None
         
-        weights = ResNeXt101_32X8D_Weights.DEFAULT if pretrained else None
-        self.backbone = resnext101_32x8d(weights=weights)
-        
-        # use LPS, Spectrogram
-        original_conv1 = self.backbone.conv1
-        self.backbone.conv1 = nn.Conv2d(
+        # low freq backbone
+        self.low_backbone = resnext101_64x4d(weights=weights)
+        original_conv1_low = self.low_backbone.conv1
+        self.low_backbone.conv1 = nn.Conv2d(
             in_channels=3,
-            out_channels=original_conv1.out_channels,
-            kernel_size=original_conv1.kernel_size,
-            stride=original_conv1.stride,
-            padding=original_conv1.padding,
+            out_channels=original_conv1_low.out_channels,
+            kernel_size=original_conv1_low.kernel_size,
+            stride=original_conv1_low.stride,
+            padding=original_conv1_low.padding,
             bias=False
         )
-        
-        num_features = self.backbone.fc.in_features
-        self.backbone.fc = nn.Linear(num_features, out_dim)
+        num_features_low = self.low_backbone.fc.in_features
+        self.low_backbone.fc = nn.Linear(num_features_low, out_dim)
 
-    def forward(self, x_lfreq, x_hfreq):
+        # high freq backbone
+        self.high_backbone = resnext101_64x4d(weights=weights)
+        original_conv1_high = self.high_backbone.conv1
+        self.high_backbone.conv1 = nn.Conv2d(
+            in_channels=3,
+            out_channels=original_conv1_high.out_channels,
+            kernel_size=original_conv1_high.kernel_size,
+            stride=original_conv1_high.stride,
+            padding=original_conv1_high.padding,
+            bias=False
+        )
+        num_features_high = self.high_backbone.fc.in_features
+        self.high_backbone.fc = nn.Linear(num_features_high, out_dim)
+
+    def forward(self, x_low, x_high):
         """
-        x: (B, 3, 432, 480) - (Batch, RGB, H, W)
+        x: (B, 3, H, W) - (B, 3, 432, 480)
         """
-        
-        out_lfreq = self.backbone(x_lfreq)
-        out_hfreq = self.backbone(x_hfreq)
-        
+        out_lfreq = self.low_backbone(x_low)   
+        out_hfreq = self.high_backbone(x_high) 
         return out_lfreq, out_hfreq
 #----------------------------------------------------------------------------------------------------
 # Multi-Head Attention
@@ -383,12 +405,6 @@ class MHA(nn.Module):
         self.embed_dim = embed_dim
         self.mha = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
         self.norm = nn.LayerNorm(embed_dim)
-        self.fusion_head = nn.Sequential(
-            nn.Linear(embed_dim * 4, embed_dim), 
-            nn.ReLU(),
-            nn.Dropout(0.2), 
-            nn.Linear(embed_dim, 2) 
-        )
         self.fusion_head = nn.Sequential(
             
             nn.Linear(embed_dim * 4, 1024), 
@@ -476,12 +492,18 @@ class Model(nn.Module):
         
         self.stjgat = STJGAT(in_channels=32, out_dim=32, dropout=0.2)
         self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
-        self.lfreq = ResNet101()
+        self.resnet101 = ResNet101(out_dim=512, pretrained=False)
+        # self.resnext101 = ResNeXt101(out_dim=512, pretrained=False)
+        self.mha = MHA(embed_dim=512, num_heads=4)
+        
+    def forward(self, audio_x, lfreq_img, hfreq_img):
+        audio_x = self.convlayers(audio_x)       # (B, 201, 256, 32)
+        audio_x = self.SEre2blocks(audio_x)      # (B, 25, 16, 32)
+        out_stj = self.stjgat(audio_x)     
+        out_bldl = self.bldl(audio_x)    
+        
+        out_lfreq, out_hfreq = self.resnet101(lfreq_img, hfreq_img)
+        # out_lfreq, out_hfreq = self.resnext(lfreq_img, hfreq_img)
+        out = self.mha(out_bldl, out_stj, out_lfreq, out_hfreq)
 
-    def forward(self, x):
-        x = self.convlayers(x)       # (B, 201, 256, 32)
-        x = self.SEre2blocks(x)      # (B, 25, 16, 32)
-        out_stj = self.stjgat(x)     
-        out_bldl = self.bldl(x)      
-
-        return out_stj, out_bldl
+        return out
