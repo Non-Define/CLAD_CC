@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
-from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
+from datautils import AudioTrainDataset,AudioTestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
 from k_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
 from transformers import WavLMModel
 
@@ -205,7 +205,7 @@ def get_loader(
                                             is_eval=False)
     print("no. training files:", len(file_train))
 
-    train_set = TrainDataset(list_IDs=file_train,
+    train_set = AudioTrainDataset(list_IDs=file_train,
                                            labels=d_label_trn,
                                            base_dir=trn_database_path,
                                            cut=cut)
@@ -226,7 +226,7 @@ def get_loader(
                                         is_eval=False)
     print("no. validation files:", len(file_dev))
 
-    dev_set = TestDataset(list_IDs=file_dev,
+    dev_set = AudioTestDataset(list_IDs=file_dev,
                                             base_dir=dev_database_path)
     dev_loader = DataLoader(dev_set,
                             batch_size=config["batch_size"],
@@ -242,7 +242,7 @@ def get_loader(
                                 is_eval=True)
     print("no. evaluation files:", len(file_eval))
 
-    eval_set = TestDataset(list_IDs=file_eval,
+    eval_set = AudioTestDataset(list_IDs=file_eval,
                                             base_dir=eval_database_path)
     eval_loader = DataLoader(eval_set,
                             batch_size=config["batch_size"],
