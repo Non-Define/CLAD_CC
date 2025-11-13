@@ -515,7 +515,7 @@ class ImageModel(nn.Module):
         
         return out_lfreq, out_hfreq
 
-class FusionModelWithWavLM(nn.Module):
+class FusionModel(nn.Module):
     def __init__(self, device):
         super().__init__()
         self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
