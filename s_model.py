@@ -515,15 +515,20 @@ class ImageModel(nn.Module):
         
         return out_lfreq, out_hfreq
 
-class FusionModel(nn.Module):
+class FusionModelWithWavLM(nn.Module):
     def __init__(self, device):
         super().__init__()
+        self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
         self.audio_model = AudioModel().to(device)
         self.image_model = ImageModel().to(device)
-        self.mha = MHA(embed_dim=512, num_heads=4).to(device)  
+        self.mha = MHA(embed_dim=512, num_heads=4).to(device)
+
+        for param in self.wavlm_model.parameters():
+            param.requires_grad = False
 
     def forward(self, audio_input, lfreq_img, hfreq_img):
-        out_stj, out_bldl = self.audio_model(audio_input)
+        wavlm_features = self.wavlm_model(audio_input).last_hidden_state
+        out_stj, out_bldl = self.audio_model(wavlm_features)
         out_lfreq, out_hfreq = self.image_model(lfreq_img, hfreq_img)
         final_out = self.mha(out_bldl, out_stj, out_lfreq, out_hfreq)
         
