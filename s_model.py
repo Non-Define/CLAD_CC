@@ -455,7 +455,7 @@ class Permute(nn.Module):
     def forward(self, x):
         return x.permute(*self.dims)
     
-class Model(nn.Module):
+class AudioModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.convlayers = ConvLayers()  # (B, 1, 201, 256) → (B, 32, 201, 256)
@@ -496,14 +496,35 @@ class Model(nn.Module):
         # self.resnext101 = ResNeXt101(out_dim=512, pretrained=False)
         self.mha = MHA(embed_dim=512, num_heads=4)
         
-    def forward(self, audio_x, lfreq_img, hfreq_img):
+    def forward(self, audio_x):
         audio_x = self.convlayers(audio_x)       # (B, 201, 256, 32)
         audio_x = self.SEre2blocks(audio_x)      # (B, 25, 16, 32)
         out_stj = self.stjgat(audio_x)     
         out_bldl = self.bldl(audio_x)    
+
+        return out_stj, out_bldl
+    
+class ImageModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.resnet101 = ResNet101(out_dim=512, pretrained=False)
         
+    def forward(self, lfreq_img, hfreq_img):
         out_lfreq, out_hfreq = self.resnet101(lfreq_img, hfreq_img)
         # out_lfreq, out_hfreq = self.resnext(lfreq_img, hfreq_img)
-        out = self.mha(out_bldl, out_stj, out_lfreq, out_hfreq)
+        
+        return out_lfreq, out_hfreq
 
-        return out
+class FusionModel(nn.Module):
+    def __init__(self, device):
+        super().__init__()
+        self.audio_model = AudioModel().to(device)
+        self.image_model = ImageModel().to(device)
+        self.mha = MHA(embed_dim=512, num_heads=4).to(device)  
+
+    def forward(self, audio_input, lfreq_img, hfreq_img):
+        out_stj, out_bldl = self.audio_model(audio_input)
+        out_lfreq, out_hfreq = self.image_model(lfreq_img, hfreq_img)
+        final_out = self.mha(out_bldl, out_stj, out_lfreq, out_hfreq)
+        
+        return final_out
