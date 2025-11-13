@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torchvision.models.resnet import resnet101, ResNet101_Weights
 from torchvision.models import resnext101_32x8d, ResNeXt101_32X8D_Weights
+from transformers import WavLMModel
 
 from typing import Callable, Optional, Union
 #----------------------------------------------------------------------------------------------------
