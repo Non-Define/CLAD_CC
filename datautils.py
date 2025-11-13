@@ -10,7 +10,9 @@ import timestretch
 import json
 import numpy as np
 import soundfile as sf
+from PIL import Image
 import torchaudio
+from torchvision import transforms
 
 import torch
 import torch.nn as nn
@@ -409,8 +411,9 @@ class AddZeroPadding(nn.Module):
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
-class TrainDataset(Dataset):
-    def __init__(self, list_IDs, labels, base_dir, cut=96000):
+# Raw Waveform
+class AudioTrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, base_dir, cut=64000):
         self.list_IDs = list_IDs
         self.labels = labels
         self.base_dir = base_dir
@@ -432,8 +435,8 @@ class TrainDataset(Dataset):
         y = self.labels[key]
         return x_inp, y
 
-class TestDataset(Dataset):
-    def __init__(self, list_IDs, base_dir, cut=96000):
+class AudioTestDataset(Dataset):
+    def __init__(self, list_IDs, base_dir, cut=64000):
         self.list_IDs = list_IDs
         self.base_dir = base_dir
         self.cut = cut
@@ -452,7 +455,46 @@ class TestDataset(Dataset):
 
         x_inp = Tensor(X)
         return x_inp, key
+#-----------------------------------------------------------------------------------------------
+# Image
+class ImageTrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, base_dir, transform=None):
+        self.list_IDs = list_IDs
+        self.labels = labels
+        self.base_dir = base_dir
+        self.transform = transform or transforms.ToTensor() 
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        X = Image.open(str(self.base_dir / f"{key}_lps.png")).convert("RGB")
+
+        if self.transform:
+            X = self.transform(X)
+        y = self.labels[key]
+        
+        return X, y
     
+class ImageTestDataset(Dataset):
+    def __init__(self, list_IDs, base_dir, transform=None):
+        self.list_IDs = list_IDs
+        self.base_dir = base_dir
+        self.transform = transform or transforms.ToTensor()
+        
+    def __len__(self):
+        return len(self.list_IDs)
+    
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        X = Image.open(str(self.base_dir / f"{key}_lps.png")).convert("RGB")
+        
+        if self.transform:
+            X = self.transform(X)
+        
+        return X, key
+#-----------------------------------------------------------------------------------------------
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
     d_meta = {}
@@ -491,4 +533,3 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
             key = parts[1]
             file_list.append(key)
         return file_list
-        
