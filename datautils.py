@@ -411,7 +411,123 @@ class AddZeroPadding(nn.Module):
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
-# Raw Waveform
+class TrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, audio_base_dir, image_base_dir, cut=64000, transform=None):
+        self.list_IDs = list_IDs
+        self.labels = labels
+        self.audio_base_dir = audio_base_dir
+        self.image_base_dir = image_base_dir
+        self.cut = cut
+        self.transform = transform or transforms.ToTensor()
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+
+        # ----- audio -----
+        audio_path = self.audio_base_dir / f"{key}.flac"
+        X_audio, _ = sf.read(str(audio_path))
+
+        if X_audio.shape[-1] < self.cut:
+            X_audio = X_audio.repeat(1, int(self.cut / X_audio.shape[-1]) + 1)[:, :self.cut]
+        elif X_audio.shape[-1] > self.cut:
+            X_audio = X_audio[:self.cut]
+
+        X_audio = Tensor(X_audio)
+
+        # ----- image -----
+        image_path = self.image_base_dir / f"{key}_lps.png"
+        X_image = Image.open(str(image_path)).convert("RGB")
+        X_image = self.transform(X_image)
+        
+        H = X_image.size(1)
+        half_H = H // 2
+        X_lfreq = X_image[:, :half_H, :]
+        X_hfreq = X_image[:, half_H:, :]
+
+        y = self.labels[key]
+
+        return X_audio, X_lfreq, X_hfreq, y
+    
+class TestDataset(Dataset):
+    def __init__(self, list_IDs, audio_base_dir, image_base_dir, cut=64000, transform=None):
+        self.list_IDs = list_IDs
+        self.audio_base_dir = audio_base_dir
+        self.image_base_dir = image_base_dir
+        self.cut = cut
+        self.transform = transform or transforms.ToTensor()
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+
+        # ----- audio -----
+        audio_path = self.audio_base_dir / f"{key}.flac"
+        X_audio, _ = sf.read(str(audio_path))
+
+        if X_audio.shape[-1] < self.cut:
+            X_audio = X_audio.repeat(1, int(self.cut / X_audio.shape[-1]) + 1)[:, :self.cut]
+        elif X_audio.shape[-1] > self.cut:
+            X_audio = X_audio[:self.cut]
+
+        X_audio = Tensor(X_audio)
+
+        # ----- image -----
+        image_path = self.image_base_dir / f"{key}_lps.png"
+        X_image = Image.open(str(image_path)).convert("RGB")
+        X_image = self.transform(X_image)
+        
+        H = X_image.size(1)
+        half_H = H // 2
+        X_lfreq = X_image[:, :half_H, :]
+        X_hfreq = X_image[:, half_H:, :]
+
+        return X_audio, X_image, key
+#-----------------------------------------------------------------------------------------------
+def genSpoof_list(dir_meta, is_train=False, is_eval=False):
+
+    d_meta = {}
+    file_list = []
+    with open(dir_meta, "r") as f:
+        l_meta = f.readlines()
+
+    if is_train:
+        for line in l_meta:
+            parts = line.strip().split()
+            if len(parts) < 10:
+                print(f"잘못된 라인: {line}")
+                continue
+            key = parts[1]
+            label = parts[8]
+            file_list.append(key)
+            d_meta[key] = 1 if label == "bonafide" else 0
+        return d_meta, file_list
+
+    elif is_eval:
+        for line in l_meta:
+            parts = line.strip().split()
+            if len(parts) < 10:
+                print(f"잘못된 라인: {line}")
+                continue
+            key = parts[1]
+            file_list.append(key)
+        return file_list
+
+    else:
+        for line in l_meta:
+            parts = line.strip().split()
+            if len(parts) < 10:
+                print(f"잘못된 라인: {line}")
+                continue
+            key = parts[1]
+            file_list.append(key)
+        return file_list
+
+'''
 class AudioTrainDataset(Dataset):
     def __init__(self, list_IDs, labels, base_dir, cut=64000):
         self.list_IDs = list_IDs
@@ -455,81 +571,4 @@ class AudioTestDataset(Dataset):
 
         x_inp = Tensor(X)
         return x_inp, key
-#-----------------------------------------------------------------------------------------------
-# Image
-class ImageTrainDataset(Dataset):
-    def __init__(self, list_IDs, labels, base_dir, transform=None):
-        self.list_IDs = list_IDs
-        self.labels = labels
-        self.base_dir = base_dir
-        self.transform = transform or transforms.ToTensor() 
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X = Image.open(str(self.base_dir / f"{key}_lps.png")).convert("RGB")
-
-        if self.transform:
-            X = self.transform(X)
-        y = self.labels[key]
-        
-        return X, y
-    
-class ImageTestDataset(Dataset):
-    def __init__(self, list_IDs, base_dir, transform=None):
-        self.list_IDs = list_IDs
-        self.base_dir = base_dir
-        self.transform = transform or transforms.ToTensor()
-        
-    def __len__(self):
-        return len(self.list_IDs)
-    
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X = Image.open(str(self.base_dir / f"{key}_lps.png")).convert("RGB")
-        
-        if self.transform:
-            X = self.transform(X)
-        
-        return X, key
-#-----------------------------------------------------------------------------------------------
-def genSpoof_list(dir_meta, is_train=False, is_eval=False):
-
-    d_meta = {}
-    file_list = []
-    with open(dir_meta, "r") as f:
-        l_meta = f.readlines()
-
-    if is_train:
-        for line in l_meta:
-            parts = line.strip().split()
-            if len(parts) < 10:
-                print(f"잘못된 라인: {line}")
-                continue
-            key = parts[1]
-            label = parts[8]
-            file_list.append(key)
-            d_meta[key] = 1 if label == "bonafide" else 0
-        return d_meta, file_list
-
-    elif is_eval:
-        for line in l_meta:
-            parts = line.strip().split()
-            if len(parts) < 10:
-                print(f"잘못된 라인: {line}")
-                continue
-            key = parts[1]
-            file_list.append(key)
-        return file_list
-
-    else:
-        for line in l_meta:
-            parts = line.strip().split()
-            if len(parts) < 10:
-                print(f"잘못된 라인: {line}")
-                continue
-            key = parts[1]
-            file_list.append(key)
-        return file_list
+'''
