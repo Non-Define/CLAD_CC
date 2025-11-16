@@ -486,7 +486,7 @@ class TestDataset(Dataset):
         X_lfreq = X_image[:, :half_H, :]
         X_hfreq = X_image[:, half_H:, :]
 
-        return X_audio, X_image, key
+        return X_audio, X_lfreq, X_hfreq, key
 #-----------------------------------------------------------------------------------------------
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
