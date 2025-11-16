@@ -8,9 +8,9 @@ import json
 import os
 import sys
 import warnings
-from importlib import import_module
 from pathlib import Path
 from shutil import copy
+from importlib import import_module
 from typing import Dict, List, Union
 
 import torch
@@ -20,9 +20,8 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
-from datautils import TrainDataset,TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
-from k_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, GraphPool, STJGAT, Permute, Model
-from transformers import WavLMModel
+from datautils import TrainDataset, TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
+from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, ResNet101, ResNeXt101, MHA, Permute, AudioModel, ImageModel, FusionModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
 from evaluation.calculate_modules import * 
@@ -67,7 +66,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "WavLM(ORIG)_{}_96000".format(selected_manipulation_key)
+    model_tag = "WavLM_{}_64600".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -110,7 +109,7 @@ def main(args: argparse.Namespace) -> None:
 
     # get optimizer and scheduler
     optim_config["steps_per_epoch"] = len(trn_loader)
-    optimizer, scheduler = create_optimizer(model.backbone.parameters(), optim_config)
+    optimizer, scheduler = create_optimizer(model.parameters(), optim_config)
     optimizer_swa = SWA(optimizer)
 
     best_dev_eer = 100.
@@ -160,23 +159,8 @@ def main(args: argparse.Namespace) -> None:
     writer.close() 
 #-----------------------------------------------------------------------------------------------
 # Model
-class CombinedModel(nn.Module):
-    def __init__(self, device):
-        super().__init__()
-        self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
-        self.backbone = Model().to(device)
-        
-        for param in self.wavlm_model.parameters():
-            param.requires_grad = False
-
-    def forward(self, audio_input):
-        outputs = self.wavlm_model(audio_input)
-        wavlm_features = outputs.last_hidden_state
-        out_stjgat, out_bldl = self.backbone(wavlm_features)
-        return out_stjgat, out_bldl
-
 def get_model(device):
-    model = CombinedModel(device)
+    model = FusionModel(device)
     nb_params = sum(p.numel() for p in model.parameters())
     print(f"Total params: {nb_params:,}")
     return model
@@ -188,72 +172,100 @@ def get_loader(
         config: dict) -> List[torch.utils.data.DataLoader]:
     """Make PyTorch DataLoaders for train / developement"""
 
-    trn_database_path = database_path / "flac_T/"
-    dev_database_path = database_path / "flac_D/"
-    eval_database_path = database_path / "flac_E_eval/"
+    audio_trn_database_path = database_path / "flac_T/"
+    image_trn_database_path = database_path / "image" / "lps_T/"
+    audio_dev_database_path = database_path / "flac_D/"
+    image_dev_database_path = database_path / "image" / "lps_D/"
+    audio_eval_database_path = database_path / "flac_E_eval/"
+    image_eval_database_path = database_path / "image" /"lps_E_eval/"
     trn_list_path = (database_path /
                      "ASVspoof5.train.tsv")
     dev_trial_path = (database_path /
                       "ASVspoof5.dev.track_1.tsv")
     eval_trial_path = (database_path / 
                        "ASVspoof5.eval.track_1.tsv")
-    cut = 96000
+    cut = 64600
     #---------------------------------------------------------------------------------------------------------------------------
     # train
-    d_label_trn, file_train = genSpoof_list(dir_meta=trn_list_path,
-                                            is_train=True,
-                                            is_eval=False)
-    print("no. training files:", len(file_train))
+    d_label_trn, file_train = genSpoof_list(
+    dir_meta=trn_list_path,
+    is_train=True,
+    is_eval=False
+    )
+    print("no. train files:", len(file_train))
 
-    train_set = TrainDataset(list_IDs=file_train,
-                                           labels=d_label_trn,
-                                           base_dir=trn_database_path,
-                                           cut=cut)
+    train_set = TrainDataset(
+        list_IDs=file_train,
+        labels=d_label_trn,
+        audio_base_dir=audio_trn_database_path,
+        image_base_dir=image_trn_database_path,
+        cut=cut
+    )
+
     gen = torch.Generator()
     gen.manual_seed(seed)
-    trn_loader = DataLoader(train_set,
-                            batch_size=config["batch_size"],
-                            shuffle=True,
-                            drop_last=True,
-                            pin_memory=True,
-                            worker_init_fn=seed_worker,
-                            generator=gen,
-                            num_workers=8)
+
+    trn_loader = DataLoader(
+        train_set,
+        batch_size=config["batch_size"],
+        shuffle=True,
+        drop_last=True,
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=gen,
+        num_workers=8
+    )
     #---------------------------------------------------------------------------------------------------------------------------
     # validate
-    file_dev = genSpoof_list(dir_meta=dev_trial_path,
-                                        is_train=False,
-                                        is_eval=False)
-    print("no. validation files:", len(file_dev))
+    file_dev = genSpoof_list(
+        dir_meta=dev_trial_path,
+        is_train=False,
+        is_eval=False
+    )
+    print("no. dev files:", len(file_dev))
 
-    dev_set = TestDataset(list_IDs=file_dev,
-                                            base_dir=dev_database_path)
-    dev_loader = DataLoader(dev_set,
-                            batch_size=config["batch_size"],
-                            shuffle=False,
-                            drop_last=False,
-                            pin_memory=True,
-                            worker_init_fn=seed_worker,
-                            num_workers=8)
+    dev_set = TestDataset(
+        list_IDs=file_dev,
+        audio_base_dir=audio_dev_database_path,
+        image_base_dir=image_dev_database_path,
+        cut=cut
+    )
+
+    dev_loader = DataLoader(
+        dev_set,
+        batch_size=config["batch_size"],
+        shuffle=False,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=8
+    )
     #---------------------------------------------------------------------------------------------------------------------------
     # evaluation
-    file_eval = genSpoof_list(dir_meta=eval_trial_path,
-                                is_train=False,
-                                is_eval=True)
-    print("no. evaluation files:", len(file_eval))
+    file_eval = genSpoof_list(
+        dir_meta=eval_trial_path,
+        is_train=False,
+        is_eval=True
+    )
+    print("no. eval files:", len(file_eval))
 
-    eval_set = TestDataset(list_IDs=file_eval,
-                                            base_dir=eval_database_path)
-    eval_loader = DataLoader(eval_set,
-                            batch_size=config["batch_size"],
-                            shuffle=False,
-                            drop_last=False,
-                            pin_memory=True,
-                            worker_init_fn=seed_worker,
-                            num_workers=8)
+    eval_set = TestDataset(
+        list_IDs=file_eval,
+        audio_base_dir=audio_eval_database_path,
+        image_base_dir=image_eval_database_path,
+        cut=cut
+    )
+
+    eval_loader = DataLoader(
+        eval_set,
+        batch_size=config["batch_size"],
+        shuffle=False,
+        drop_last=False,
+        pin_memory=True,
+        num_workers=8
+    )
     
     return trn_loader, dev_loader, eval_loader
-#-----------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------------------------------------
 # augmentation
 def augmentation(config):
     env_noise_dataset_path = config["env_noise_dataset_path"]
@@ -307,47 +319,51 @@ def augmentation(config):
     return selected_manipulation_key, selected_transform
 #-----------------------------------------------------------------------------------------------
 # Preprocessing
-def preprocessing(is_train, trn_loader, model, encoder, criterion, optimizer, device, cut_length, config, selected_transform=None, augmentations_on_cpu=None, args=None):
+def preprocessing(
+    is_train,
+    X_audio: torch.Tensor,
+    X_lfreq: torch.Tensor,
+    X_hfreq: torch.Tensor,
+    y: torch.Tensor,
+    model, encoder, criterion, optimizer, device, cut_length, config, selected_transform=None, augmentations_on_cpu=None, args=None):
     selected_manipulation_key, selected_transform = augmentation(config)
-    for batch_idx, (audio_input, spks, labels) in enumerate(tqdm(trn_loader)):
-        audio_input = audio_input.squeeze(1).to(device)
-        labels = labels.to(audio_input.device)
-
-        if is_train:
-            if augmentations_on_cpu is not None:
-                audio_input = augmentations_on_cpu(audio_input)
-            audio_input = audio_input.to(device)
-
-            audio_length = audio_input.shape[-1]
-            if (labels == 0).any():
-                spoof_audio = audio_input[labels == 0]
-                batch_size = spoof_audio.size(0)
-                augmented_audio_list = []
-
-                for i in range(batch_size):
-                    if selected_transform is None:
-                        transformed = spoof_audio[i]
-                    else:
-                        transformed = selected_transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
-
-                    if transformed.shape[-1] > audio_length:
-                        transformed = transformed[:, :audio_length]
-                    elif transformed.shape[-1] < audio_length:
-                        transformed = transformed.repeat(1, int(audio_length/transformed.shape[-1])+1)[:, :audio_length]
-
-                    transformed = transformed.to(audio_input.device)
-                    augmented_audio_list.append(transformed)
-
-                augmented_audio = torch.stack(augmented_audio_list)
-                audio_input[labels == 0] = augmented_audio
-
-            if audio_input.shape[-1] < cut_length:
-                audio_input = audio_input.repeat(1, int(cut_length / audio_input.shape[-1]) + 1)[:, :cut_length]
-            elif audio_input.shape[-1] > cut_length:
-                audio_input = audio_input[:, :cut_length]
+    
+    X_audio = X_audio.squeeze(1).to(device)
+    labels = y.to(device)
+    X_lfreq = X_lfreq.to(device)
+    X_hfreq = X_hfreq.to(device)
+    
 
     if is_train:
-        return audio_input
+        if augmentations_on_cpu is not None:
+            X_audio = augmentations_on_cpu(X_audio)
+        X_audio = X_audio.to(device)
+
+        audio_length = X_audio.shape[-1]
+        if (labels == 0).any():
+            spoof_audio = X_audio[labels == 0]
+            batch_size = spoof_audio.size(0)
+            augmented_audio_list = []
+
+            for i in range(batch_size):
+                if selected_transform is None:
+                    transformed = spoof_audio[i]
+                else:
+                    transformed = selected_transform(spoof_audio[i].unsqueeze(0)).squeeze(0)
+
+                if transformed.shape[-1] > audio_length:
+                    transformed = transformed[:, :audio_length]
+                elif transformed.shape[-1] < audio_length:
+                    transformed = transformed.repeat(1, int(audio_length/transformed.shape[-1])+1)[:, :audio_length]
+
+                transformed = transformed.to(X_audio.device)
+                augmented_audio_list.append(transformed)
+
+            augmented_audio = torch.stack(augmented_audio_list)
+            X_audio[labels == 0] = augmented_audio
+
+    if is_train:
+        return X_audio, X_lfreq, X_hfreq, y
 #-----------------------------------------------------------------------------------------------
 # Eval(validation)
 def produce_evaluation_file(
@@ -362,21 +378,17 @@ def produce_evaluation_file(
         trial_lines = f_trl.readlines()
     fname_list = []
     score_list = []
-    cut_length = 96000
+    cut_length = 64600
     
-    for batch_x, utt_id in tqdm(data_loader):
-        if batch_x.shape[-1] < cut_length:
-            batch_x = batch_x.repeat(1, int(cut_length / batch_x.shape[-1]) + 1)[:, :cut_length]
-        elif batch_x.shape[-1] > cut_length:
-            batch_x = batch_x[:, :cut_length]
-        batch_x = batch_x.to(device)
+    for X_audio, X_lfreq, X_hfreq, utt_id in tqdm(data_loader):
+        X_audio = X_audio.to(device)
+        X_lfreq = X_lfreq.to(device)
+        X_hfreq = X_hfreq.to(device)
+        
         with torch.no_grad():
-            out_stjgat, out_bldl = model(batch_x)
-            score_stjgat = out_stjgat[:, 1]
-            score_bldl = out_bldl[:, 1]
-            
-            fused_scores = 0.5 * score_stjgat + 0.5 * score_bldl
-            batch_score = fused_scores.data.cpu().numpy().ravel()
+            final_out = model(X_audio, X_lfreq, X_hfreq)
+            scores = final_out[:, 1]
+            batch_score = scores.data.cpu().numpy().ravel()
             
         # add outputs
         fname_list.extend(utt_id)
@@ -407,36 +419,39 @@ def train_epoch(
     weight = torch.FloatTensor([0.1, 0.9]).to(device)
     criterion = nn.CrossEntropyLoss(weight=weight)
     
-    for batch_x, batch_y in tqdm(trn_loader):
-        batch_size = batch_x.size(0)
+    for X_audio, X_lfreq, X_hfreq, y in tqdm(trn_loader):
+        batch_size = X_audio.size(0)
         num_total += batch_size
         
         selected_transform = augmentation(config)
-        batch_x = preprocessing(
+        X_audio, X_lfreq, X_hfreq, y = preprocessing(
             is_train=True,
-            trn_loader=[(batch_x, None, batch_y)], 
+            X_audio=X_audio,
+            X_lfreq=X_lfreq,
+            X_hfreq=X_hfreq, 
+            y=y,
             model=None,
             encoder=None,
             criterion=None,
             optimizer=None,
             config=config,
             device=device,
-            cut_length=96000,
+            cut_length=64600,
             selected_transform=selected_transform,
             augmentations_on_cpu=None
         )
             
-        batch_x = batch_x.to(device)
-        batch_y = batch_y.view(-1).type(torch.int64).to(device)
+        X_audio = X_audio.to(device)
+        X_lfreq = X_lfreq.to(device)
+        X_hfreq = X_hfreq.to(device)
+        y = y.view(-1).type(torch.int64).to(device)
         
-        out_stjgat, out_bldl = model(batch_x)
-        loss_stjgat = criterion(out_stjgat, batch_y)
-        loss_bldl = criterion(out_bldl, batch_y)
-        batch_loss = 0.5 * loss_stjgat + 0.5 * loss_bldl
-        running_loss += batch_loss.item() * batch_size
+        final_out = model(X_audio, X_lfreq, X_hfreq)
+        loss = criterion(final_out, y)
+        running_loss += loss.item() * batch_size
         
         optim.zero_grad()
-        batch_loss.backward()
+        loss.backward()
         optim.step()
 
         if config["optim_config"]["scheduler"] in ["cosine", "keras_decay"]:
@@ -462,7 +477,7 @@ if __name__ == "__main__":
         dest="output_dir",
         type=str,
         help="output directory for results",
-        default="./k_exp_result",
+        default="./s_exp_result",
     )
     parser.add_argument("--seed",
                         type=int,
