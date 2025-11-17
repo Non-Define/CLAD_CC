@@ -225,7 +225,7 @@ def get_loader(
     print("no. dev files:", len(file_dev))
 
     dev_set = TestDataset(
-        list_IDs=file_dev[:,
+        list_IDs=file_dev,
         audio_base_dir=audio_dev_database_path,
         image_base_dir=image_dev_database_path,
         cut=cut
@@ -249,7 +249,7 @@ def get_loader(
     print("no. eval files:", len(file_eval))
 
     eval_set = TestDataset(
-        list_IDs=file_eval[:50],
+        list_IDs=file_eval,
         audio_base_dir=audio_eval_database_path,
         image_base_dir=image_eval_database_path,
         cut=cut
