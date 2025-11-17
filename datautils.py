@@ -427,11 +427,10 @@ class TrainDataset(Dataset):
         key = self.list_IDs[index]
 
         # ----- audio -----
-        audio_path = self.audio_base_dir / f"{key}.flac"
-        X_audio, _ = sf.read(str(audio_path))
+        X_audio, _ = sf.read(str(self.audio_base_dir / f"{key}.flac"))
 
         if X_audio.shape[-1] < self.cut:
-            X_audio = X_audio.repeat(1, int(self.cut / X_audio.shape[-1]) + 1)[:, :self.cut]
+            X_audio = np.tile(X_audio, int(self.cut / X_audio.shape[-1]) + 1)[:self.cut]
         elif X_audio.shape[-1] > self.cut:
             X_audio = X_audio[:self.cut]
 
@@ -466,11 +465,10 @@ class TestDataset(Dataset):
         key = self.list_IDs[index]
 
         # ----- audio -----
-        audio_path = self.audio_base_dir / f"{key}.flac"
-        X_audio, _ = sf.read(str(audio_path))
+        X_audio, _ = sf.read(str(self.audio_base_dir / f"{key}.flac"))
 
         if X_audio.shape[-1] < self.cut:
-            X_audio = X_audio.repeat(1, int(self.cut / X_audio.shape[-1]) + 1)[:, :self.cut]
+            X_audio = np.tile(X_audio, int(self.cut / X_audio.shape[-1]) + 1)[:self.cut]
         elif X_audio.shape[-1] > self.cut:
             X_audio = X_audio[:self.cut]
 
