@@ -21,7 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
 from datautils import TrainDataset, TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
-from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, ResNet101, ResNeXt101, MHA, Permute, AudioModel, ImageModel, FusionModel
+from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, ResNet34, ResNeXt101, MHA, Permute, AudioModel, ImageModel, FusionModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
 from evaluation.calculate_modules import * 
@@ -225,7 +225,7 @@ def get_loader(
     print("no. dev files:", len(file_dev))
 
     dev_set = TestDataset(
-        list_IDs=file_dev,
+        list_IDs=file_dev[:,
         audio_base_dir=audio_dev_database_path,
         image_base_dir=image_dev_database_path,
         cut=cut
@@ -249,7 +249,7 @@ def get_loader(
     print("no. eval files:", len(file_eval))
 
     eval_set = TestDataset(
-        list_IDs=file_eval,
+        list_IDs=file_eval[:50],
         audio_base_dir=audio_eval_database_path,
         image_base_dir=image_eval_database_path,
         cut=cut

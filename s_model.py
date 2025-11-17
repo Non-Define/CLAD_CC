@@ -11,8 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torchvision.models.resnet import resnet101, ResNet101_Weights
-from torchvision.models import resnext101_32x8d, ResNeXt101_32X8D_Weights
+from torchvision.models.resnet import resnet34, ResNet34_Weights
 from transformers import WavLMModel
 
 from typing import Callable, Optional, Union
@@ -314,13 +313,13 @@ class STJGAT(nn.Module):
 # Freq Branch
 #----------------------------------------------------------------------------------------------------
 # ResNet-101
-class ResNet101(nn.Module):
+class ResNet34(nn.Module):
     def __init__(self, out_dim=512, pretrained=False):
-        super(ResNet101, self).__init__()
-        weights = ResNet101_Weights.DEFAULT if pretrained else None
+        super(ResNet34, self).__init__()
+        weights = ResNet34_Weights.DEFAULT if pretrained else None
         
         # low freq backbone
-        self.low_backbone = resnet101(weights=weights)
+        self.low_backbone = resnet34(weights=weights)
         original_conv1_low = self.low_backbone.conv1
         self.low_backbone.conv1 = nn.Conv2d(
             in_channels=3,
@@ -334,7 +333,7 @@ class ResNet101(nn.Module):
         self.low_backbone.fc = nn.Linear(num_features_low, out_dim)
 
         # high freq backbone
-        self.high_backbone = resnet101(weights=weights)
+        self.high_backbone = resnet34(weights=weights)
         original_conv1_high = self.high_backbone.conv1
         self.high_backbone.conv1 = nn.Conv2d(
             in_channels=3,
@@ -493,7 +492,7 @@ class AudioModel(nn.Module):
         
         self.stjgat = STJGAT(in_channels=32, out_dim=32, dropout=0.2)
         self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
-        self.resnet101 = ResNet101(out_dim=512, pretrained=False)
+        self.resnet34 = ResNet34(out_dim=512, pretrained=False)
         # self.resnext101 = ResNeXt101(out_dim=512, pretrained=False)
         self.mha = MHA(embed_dim=512, num_heads=4)
         
@@ -508,10 +507,10 @@ class AudioModel(nn.Module):
 class ImageModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.resnet101 = ResNet101(out_dim=512, pretrained=False)
+        self.resnet34 = ResNet34(out_dim=512, pretrained=False)
         
     def forward(self, lfreq_img, hfreq_img):
-        out_lfreq, out_hfreq = self.resnet101(lfreq_img, hfreq_img)
+        out_lfreq, out_hfreq = self.resnet34(lfreq_img, hfreq_img)
         # out_lfreq, out_hfreq = self.resnext(lfreq_img, hfreq_img)
         
         return out_lfreq, out_hfreq
