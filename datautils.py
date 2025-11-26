@@ -509,7 +509,7 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
         for line in l_meta:
             parts = line.strip().split()
             if len(parts) < 10:
-                print(f"잘못된 라인: {line}")
+                print(f"Incorrect line: {line}")
                 continue
             key = parts[1]
             file_list.append(key)
