@@ -314,9 +314,9 @@ class STJGAT(nn.Module):
 #----------------------------------------------------------------------------------------------------
 # ResNet-101
 class ResNet34(nn.Module):
-    def __init__(self, out_dim=512, pretrained=False):
+    def __init__(self, out_dim=512, pretrained=True):
         super(ResNet34, self).__init__()
-        weights = ResNet34_Weights.DEFAULT if pretrained else None
+        weights = ResNet34_Weights.IMAGENET1K_V1 if pretrained else None
         
         # low freq backbone
         self.low_backbone = resnet34(weights=weights)
@@ -332,7 +332,6 @@ class ResNet34(nn.Module):
         num_features_low = self.low_backbone.fc.in_features
         self.low_backbone.fc = nn.Linear(num_features_low, out_dim)
 
-        # high freq backbone
         self.high_backbone = resnet34(weights=weights)
         original_conv1_high = self.high_backbone.conv1
         self.high_backbone.conv1 = nn.Conv2d(
@@ -348,7 +347,7 @@ class ResNet34(nn.Module):
 
     def forward(self, x_low, x_high):
         """
-        x: (B, 3, H, W) - (B, RGB, 432, 480)
+        x_low, x_high: (B, 3, H, W)
         """
         out_lfreq = self.low_backbone(x_low)   
         out_hfreq = self.high_backbone(x_high) 
@@ -431,7 +430,32 @@ class MHA(nn.Module):
         )
         
     def forward(self, bldl_out, stjgat_out, out_lfreq, out_hfreq):
+        w_time = 0.4
+        w_freq = 0.1
+        
+        # 2. 각 브랜치 출력 벡터에 가중치를 곱하여 중요도를 조절
+        bldl_scaled = bldl_out * w_time
+        stjgat_scaled = stjgat_out * w_time
+        lfreq_scaled = out_lfreq * w_freq
+        hfreq_scaled = out_hfreq * w_freq
+        
+        # 3. MHA 입력 시퀀스 구성 (unsqueeze와 cat은 MHA 내부 논리와 동일)
+        bldl_in = bldl_scaled.unsqueeze(1)
+        stjgat_in = stjgat_scaled.unsqueeze(1)
+        lfreq_in = lfreq_scaled.unsqueeze(1)
+        hfreq_in = hfreq_scaled.unsqueeze(1)
 
+        seq_in = torch.cat([bldl_in, stjgat_in, lfreq_in, hfreq_in], dim=1)
+        
+        # 4. 이후 MHA 및 Fusion Head 작동
+        attn_output, _ = self.mha(query=seq_in, key=seq_in, value=seq_in)
+        updated_seq = self.norm(attn_output + seq_in)
+        fused_features = updated_seq.flatten(start_dim=1)
+        
+        out = self.fusion_head(fused_features)
+
+        return out
+        '''
         bldl_in = bldl_out.unsqueeze(1)
         stjgat_in = stjgat_out.unsqueeze(1)
         lfreq_in = out_lfreq.unsqueeze(1)
@@ -445,6 +469,7 @@ class MHA(nn.Module):
         out = self.fusion_head(fused_features)
 
         return out
+        '''
 #----------------------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
