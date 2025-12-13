@@ -151,7 +151,25 @@ class BLDL(nn.Module):
                             hidden_size=hidden_size, 
                             num_layers=num_layers)
         self.gap = nn.AdaptiveAvgPool1d(1)  # (B, hidden*2, T) → (B, hidden*2, 1)
-
+        self.fc_head = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.BatchNorm1d(256),
+            nn.Dropout(0.3),
+            
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.BatchNorm1d(128),
+            nn.Dropout(0.3),
+            
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.3),
+            
+            nn.Linear(64, 2) 
+        )
+        
     def forward(self, x):
         """
         x: Tensor of shape (B, T, F, C)  e.g., (1, 25, 16, 32)
@@ -164,6 +182,7 @@ class BLDL(nn.Module):
         out = out.permute(0, 2, 1)  # (B, 512, T)
         out = self.gap(out)         # (B, 512, 1)
         out = out.squeeze(-1)       # (B, 512)
+        out = self.fc_head(out)     # (B, 2)
 
         return out
 #----------------------------------------------------------------------------------------------------
@@ -173,7 +192,6 @@ AASIST
 Copyright (c) 2021-present NAVER Corp.
 MIT license
 """ 
-
 class GraphAttentionLayer(nn.Module):
     def __init__(self, in_dim, out_dim, **kwargs):
         super().__init__()
@@ -282,6 +300,24 @@ class STJGAT(nn.Module):
         # GAT for TC
         self.gat_tc = GraphAttentionLayer(in_dim=in_channels, out_dim=out_dim)
         self.fc_proj = nn.Linear(in_features=25 * out_dim, out_features=512)
+        self.fc_head = nn.Sequential(
+            nn.Linear(512, 256),  
+            nn.ReLU(),
+            nn.BatchNorm1d(256),
+            nn.Dropout(0.3),
+            
+            nn.Linear(256, 128),  
+            nn.ReLU(),
+            nn.BatchNorm1d(128),
+            nn.Dropout(0.3),
+            
+            nn.Linear(128, 64),   
+            nn.ReLU(),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.3),
+            
+            nn.Linear(64, 2)      
+        )
 
     def forward(self, x):
         """
@@ -307,6 +343,7 @@ class STJGAT(nn.Module):
         # 이 부분 PCA로 수정하기
         TC_comp = TC_gat.reshape(B, -1)
         out = self.fc_proj(TC_comp)
+        out = self.fc_head(out)
    
         return out
 #----------------------------------------------------------------------------------------------------
@@ -314,7 +351,7 @@ class STJGAT(nn.Module):
 #----------------------------------------------------------------------------------------------------
 # ResNet-101
 class ResNet34(nn.Module):
-    def __init__(self, out_dim=512, pretrained=True):
+    def __init__(self, out_dim=512, pretrained=False):
         super(ResNet34, self).__init__()
         weights = ResNet34_Weights.IMAGENET1K_V1 if pretrained else None
         
@@ -344,15 +381,37 @@ class ResNet34(nn.Module):
         )
         num_features_high = self.high_backbone.fc.in_features
         self.high_backbone.fc = nn.Linear(num_features_high, out_dim)
+        
+        self.fc_head = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.BatchNorm1d(256),
+            nn.Dropout(0.3),
+            
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.BatchNorm1d(128),
+            nn.Dropout(0.3),
+            
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.3),
+            
+            nn.Linear(64, 2) 
+        )
 
     def forward(self, x_low, x_high):
         """
-        x_low, x_high: (B, 3, H, W)
+        x: (B, 3, H, W) - (B, 3, 432, 480) -> (B, 512) -> (B, 2)
         """
         out_lfreq = self.low_backbone(x_low)   
         out_hfreq = self.high_backbone(x_high) 
         
-        return out_lfreq, out_hfreq
+        out_l = self.fc_head(out_lfreq)
+        out_h = self.fc_head(out_hfreq)
+        
+        return out_l, out_h
 #----------------------------------------------------------------------------------------------------
 # ResNeXt-101
 class ResNeXt101(nn.Module):
@@ -388,88 +447,36 @@ class ResNeXt101(nn.Module):
         )
         num_features_high = self.high_backbone.fc.in_features
         self.high_backbone.fc = nn.Linear(num_features_high, out_dim)
-
-    def forward(self, x_low, x_high):
-        """
-        x: (B, 3, H, W) - (B, 3, 432, 480)
-        """
-        out_lfreq = self.low_backbone(x_low)   
-        out_hfreq = self.high_backbone(x_high) 
-        return out_lfreq, out_hfreq
-#----------------------------------------------------------------------------------------------------
-# Multi-Head Attention
-class MHA(nn.Module):
-    def __init__(self, embed_dim=512, num_heads=4):
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.mha = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
-        self.norm = nn.LayerNorm(embed_dim)
-        self.fusion_head = nn.Sequential(
-            
-            nn.Linear(embed_dim * 4, 1024), 
-            nn.ReLU(),
-            nn.Dropout(0.2),
-
-            nn.Linear(1024, 512),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-
+        
+        self.fc_head = nn.Sequential(
             nn.Linear(512, 256),
             nn.ReLU(),
-            nn.Dropout(0.2),
-
+            nn.BatchNorm1d(256),
+            nn.Dropout(0.3),
+            
             nn.Linear(256, 128),
             nn.ReLU(),
-            nn.Dropout(0.2),
-
+            nn.BatchNorm1d(128),
+            nn.Dropout(0.3),
+            
             nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.BatchNorm1d(64),
+            nn.Dropout(0.3),
             
             nn.Linear(64, 2) 
         )
-        
-    def forward(self, bldl_out, stjgat_out, out_lfreq, out_hfreq):
-        w_time = 0.4
-        w_freq = 0.1
-        
-        # 2. 각 브랜치 출력 벡터에 가중치를 곱하여 중요도를 조절
-        bldl_scaled = bldl_out * w_time
-        stjgat_scaled = stjgat_out * w_time
-        lfreq_scaled = out_lfreq * w_freq
-        hfreq_scaled = out_hfreq * w_freq
-        
-        # 3. MHA 입력 시퀀스 구성 (unsqueeze와 cat은 MHA 내부 논리와 동일)
-        bldl_in = bldl_scaled.unsqueeze(1)
-        stjgat_in = stjgat_scaled.unsqueeze(1)
-        lfreq_in = lfreq_scaled.unsqueeze(1)
-        hfreq_in = hfreq_scaled.unsqueeze(1)
 
-        seq_in = torch.cat([bldl_in, stjgat_in, lfreq_in, hfreq_in], dim=1)
+    def forward(self, x_low, x_high):
+        """
+        x: (B, 3, H, W) - (B, 3, 432, 480) -> (B, 512) -> (B, 2)
+        """
+        out_lfreq = self.low_backbone(x_low)   
+        out_hfreq = self.high_backbone(x_high) 
         
-        # 4. 이후 MHA 및 Fusion Head 작동
-        attn_output, _ = self.mha(query=seq_in, key=seq_in, value=seq_in)
-        updated_seq = self.norm(attn_output + seq_in)
-        fused_features = updated_seq.flatten(start_dim=1)
-        
-        out = self.fusion_head(fused_features)
-
-        return out
-        '''
-        bldl_in = bldl_out.unsqueeze(1)
-        stjgat_in = stjgat_out.unsqueeze(1)
-        lfreq_in = out_lfreq.unsqueeze(1)
-        hfreq_in = out_hfreq.unsqueeze(1)
-
-        seq_in = torch.cat([bldl_in, stjgat_in, lfreq_in, hfreq_in], dim=1)
-        attn_output, _ = self.mha(query=seq_in, key=seq_in, value=seq_in)
-        updated_seq = self.norm(attn_output + seq_in)
-        fused_features = updated_seq.flatten(start_dim=1)
-        
-        out = self.fusion_head(fused_features)
-
-        return out
-        '''
+        out_l = self.fc_head(out_lfreq)
+        out_h = self.fc_head(out_hfreq)
+        return out_l, out_h
 #----------------------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
@@ -519,7 +526,6 @@ class AudioModel(nn.Module):
         self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
         self.resnet34 = ResNet34(out_dim=512, pretrained=False)
         # self.resnext101 = ResNeXt101(out_dim=512, pretrained=False)
-        self.mha = MHA(embed_dim=512, num_heads=4)
         
     def forward(self, audio_x):
         audio_x = self.convlayers(audio_x)       # (B, 201, 256, 32)
@@ -546,7 +552,6 @@ class FusionModel(nn.Module):
         self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
         self.audio_model = AudioModel().to(device)
         self.image_model = ImageModel().to(device)
-        self.mha = MHA(embed_dim=512, num_heads=4).to(device)
 
         for param in self.wavlm_model.parameters():
             param.requires_grad = False
@@ -555,6 +560,5 @@ class FusionModel(nn.Module):
         wavlm_features = self.wavlm_model(audio_input).last_hidden_state
         out_stj, out_bldl = self.audio_model(wavlm_features)
         out_lfreq, out_hfreq = self.image_model(lfreq_img, hfreq_img)
-        final_out = self.mha(out_bldl, out_stj, out_lfreq, out_hfreq)
         
-        return final_out
+        return out_stj, out_bldl, out_lfreq, out_hfreq
