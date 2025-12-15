@@ -21,7 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
 from datautils import TrainDataset, TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
-from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, ResNet34, ResNeXt101, MHA, Permute, AudioModel, ImageModel, FusionModel
+from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, ResNet34, ResNeXt101, Permute, AudioModel, ImageModel, FusionModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
 from evaluation.calculate_modules import * 
@@ -66,7 +66,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "WavLM_{}_64600".format(selected_manipulation_key)
+    model_tag = "WavLM_{}_64600_test".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -386,9 +386,14 @@ def produce_evaluation_file(
         X_hfreq = X_hfreq.to(device)
         
         with torch.no_grad():
-            final_out = model(X_audio, X_lfreq, X_hfreq)
-            scores = final_out[:, 1]
-            batch_score = scores.data.cpu().numpy().ravel()
+            out_stj, out_bldl, out_lfreq, out_hfreq = model(X_audio, X_lfreq, X_hfreq)
+            scores_stj = out_stj[:, 1]
+            scores_bldl = out_bldl[:, 1]
+            scores_lfreq = out_lfreq[:, 1]
+            scores_hfreq = out_hfreq[:, 1]
+            
+            fused_scores = 0.25 * (score_stj, score_bldl, score_lfreq, score_hfreq)
+            batch_score = fused_scores.data.cpu().numpy().ravel()
             
         # add outputs
         fname_list.extend(utt_id)
@@ -446,8 +451,14 @@ def train_epoch(
         X_hfreq = X_hfreq.to(device)
         y = y.view(-1).type(torch.int64).to(device)
         
-        final_out = model(X_audio, X_lfreq, X_hfreq)
-        loss = criterion(final_out, y)
+        out_stj, out_bldl, out_lfreq, out_hfreq = model(X_audio, X_lfreq, X_hfreq)
+
+        loss_stj = criterion(out_stj, y)
+        loss_bldl = criterion(out_bldl, y)
+        loss_lfreq = criterion(out_lfreq, y)
+        loss_hfreq = criterion(out_hfreq, y)
+
+        loss = 0.25 * (loss_stj + loss_bldl + loss_lfreq + loss_hfreq)
         running_loss += loss.item() * batch_size
         
         optim.zero_grad()
