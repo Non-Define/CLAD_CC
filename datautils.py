@@ -411,6 +411,7 @@ class AddZeroPadding(nn.Module):
             right_len = random.randint(self.min_right_len, self.max_right_len)
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
+'''
 class TrainDataset(Dataset):
     def __init__(self, list_IDs, labels, audio_base_dir, image_base_dir, cut=64000, transform=None):
         self.list_IDs = list_IDs
@@ -485,6 +486,121 @@ class TestDataset(Dataset):
         X_hfreq = X_image[:, half_H:, :]
 
         return X_audio, X_lfreq, X_hfreq, key
+'''
+#-----------------------------------------------------------------------------------------------
+'''
+class AudioTrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, base_dir, cut=64600):
+        self.list_IDs = list_IDs
+        self.labels = labels
+        self.base_dir = base_dir
+        self.cut = cut
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        
+        if X.shape[-1] < self.cut:
+            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
+        elif X.shape[-1] > self.cut:
+            X = X[:self.cut]
+
+        x_inp = Tensor(X)
+        y = self.labels[key]
+        return x_inp, y
+
+class AudioTestDataset(Dataset):
+    def __init__(self, list_IDs, base_dir, cut=64600):
+        self.list_IDs = list_IDs
+        self.base_dir = base_dir
+        self.cut = cut
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+        
+        if X.shape[-1] < self.cut:
+            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
+        elif X.shape[-1] > self.cut:
+            X = X[:self.cut]
+
+        x_inp = Tensor(X)
+        return x_inp, key
+'''
+#-----------------------------------------------------------------------------------------------
+class AudioTrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, base_dir, cut=64000):
+        self.list_IDs = list_IDs
+        self.labels = labels
+        self.base_dir = base_dir
+        self.cut = cut
+        self.n_fft = 1728
+        self.hop_length = 130
+        self.window_type = 'blackman'
+        self.sr = 16000
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        audio_path = str(self.base_dir / f"{key}.flac")
+        y, _ = librosa.load(audio_path, sr=self.sr)
+        if y.shape[-1] < self.cut:
+            y = np.tile(y, int(self.cut / y.shape[-1]) + 1)[:self.cut]
+        else:
+            y = y[:self.cut]
+        raw_audio = Tensor(y)
+        
+        stft_result = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length, window=self.window_type)
+        magnitude = np.abs(stft_result)
+        lps_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
+        mid_bin = lps_vector.shape[0] // 2
+        lps_low = lps_vector[:mid_bin, :]
+        lps_high = lps_vector[mid_bin:, :]
+        lfreq_lps = Tensor(lps_low).unsqueeze(0)
+        hfreq_lps = Tensor(lps_high).unsqueeze(0)
+        y_label = self.labels[key]
+        return raw_audio, lfreq_lps, hfreq_lps, y_label
+
+class AudioTestDataset(Dataset):
+    def __init__(self, list_IDs, base_dir, cut=64000):
+        self.list_IDs = list_IDs
+        self.base_dir = base_dir
+        self.cut = cut
+        self.n_fft = 1728
+        self.hop_length = 130
+        self.window_type = 'blackman'
+        self.sr = 16000
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        audio_path = str(self.base_dir / f"{key}.flac")
+        y, _ = librosa.load(audio_path, sr=self.sr)
+        if y.shape[-1] < self.cut:
+            y = np.tile(y, int(self.cut / y.shape[-1]) + 1)[:self.cut]
+        else:
+            y = y[:self.cut]
+        raw_audio = Tensor(y)
+        
+        stft_result = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length, window=self.window_type)
+        magnitude = np.abs(stft_result)
+        lps_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
+        mid_bin = lps_vector.shape[0] // 2
+        lps_low = lps_vector[:mid_bin, :]
+        lps_high = lps_vector[mid_bin:, :]
+        lfreq_img = Tensor(lps_low).unsqueeze(0)
+        hfreq_img = Tensor(lps_high).unsqueeze(0)
+        return raw_audio, lfreq_img, hfreq_img, key
 #-----------------------------------------------------------------------------------------------
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
@@ -524,49 +640,3 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
             key = parts[1]
             file_list.append(key)
         return file_list
-
-'''
-class AudioTrainDataset(Dataset):
-    def __init__(self, list_IDs, labels, base_dir, cut=64000):
-        self.list_IDs = list_IDs
-        self.labels = labels
-        self.base_dir = base_dir
-        self.cut = cut
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        
-        if X.shape[-1] < self.cut:
-            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
-        elif X.shape[-1] > self.cut:
-            X = X[:self.cut]
-
-        x_inp = Tensor(X)
-        y = self.labels[key]
-        return x_inp, y
-
-class AudioTestDataset(Dataset):
-    def __init__(self, list_IDs, base_dir, cut=64000):
-        self.list_IDs = list_IDs
-        self.base_dir = base_dir
-        self.cut = cut
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        
-        if X.shape[-1] < self.cut:
-            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
-        elif X.shape[-1] > self.cut:
-            X = X[:self.cut]
-
-        x_inp = Tensor(X)
-        return x_inp, key
-'''
