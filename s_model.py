@@ -348,135 +348,49 @@ class STJGAT(nn.Module):
         return out
 #----------------------------------------------------------------------------------------------------
 # Freq Branch
-#----------------------------------------------------------------------------------------------------
-# ResNet-101
-class ResNet34(nn.Module):
-    def __init__(self, out_dim=512, pretrained=False):
-        super(ResNet34, self).__init__()
-        weights = ResNet34_Weights.IMAGENET1K_V1 if pretrained else None
+# Simple 1D CNN
+class LPSCNN(nn.Module):
+    def __init__(self, low_channels=432, high_channels=433):
+        super(LPSDualBranchCNN, self).__init__()
         
-        # low freq backbone
-        self.low_backbone = resnet34(weights=weights)
-        original_conv1_low = self.low_backbone.conv1
-        self.low_backbone.conv1 = nn.Conv2d(
-            in_channels=3,
-            out_channels=original_conv1_low.out_channels,
-            kernel_size=original_conv1_low.kernel_size,
-            stride=original_conv1_low.stride,
-            padding=original_conv1_low.padding,
-            bias=False
-        )
-        num_features_low = self.low_backbone.fc.in_features
-        self.low_backbone.fc = nn.Linear(num_features_low, out_dim)
-
-        self.high_backbone = resnet34(weights=weights)
-        original_conv1_high = self.high_backbone.conv1
-        self.high_backbone.conv1 = nn.Conv2d(
-            in_channels=3,
-            out_channels=original_conv1_high.out_channels,
-            kernel_size=original_conv1_high.kernel_size,
-            stride=original_conv1_high.stride,
-            padding=original_conv1_high.padding,
-            bias=False
-        )
-        num_features_high = self.high_backbone.fc.in_features
-        self.high_backbone.fc = nn.Linear(num_features_high, out_dim)
-        
-        self.fc_head = nn.Sequential(
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.BatchNorm1d(256),
-            nn.Dropout(0.3),
-            
-            nn.Linear(256, 128),
-            nn.ReLU(),
+        self.low_branch = nn.Sequential(
+            nn.Conv1d(low_channels, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
-            nn.Dropout(0.3),
-            
-            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.BatchNorm1d(64),
-            nn.Dropout(0.3),
-            
-            nn.Linear(64, 2) 
-        )
-
-    def forward(self, x_low, x_high):
-        """
-        x: (B, 3, H, W) - (B, 3, 432, 480) -> (B, 512) -> (B, 2)
-        """
-        out_lfreq = self.low_backbone(x_low)   
-        out_hfreq = self.high_backbone(x_high) 
-        
-        out_l = self.fc_head(out_lfreq)
-        out_h = self.fc_head(out_hfreq)
-        
-        return out_l, out_h
-#----------------------------------------------------------------------------------------------------
-# ResNeXt-101
-class ResNeXt101(nn.Module):
-    def __init__(self, out_dim=512, pretrained=False):
-        super(ResNeXt101, self).__init__()
-
-        weights = ResNeXt101_64X4D_Weights.DEFAULT if pretrained else None
-        
-        # low freq backbone
-        self.low_backbone = resnext101_64x4d(weights=weights)
-        original_conv1_low = self.low_backbone.conv1
-        self.low_backbone.conv1 = nn.Conv2d(
-            in_channels=3,
-            out_channels=original_conv1_low.out_channels,
-            kernel_size=original_conv1_low.kernel_size,
-            stride=original_conv1_low.stride,
-            padding=original_conv1_low.padding,
-            bias=False
-        )
-        num_features_low = self.low_backbone.fc.in_features
-        self.low_backbone.fc = nn.Linear(num_features_low, out_dim)
-
-        # high freq backbone
-        self.high_backbone = resnext101_64x4d(weights=weights)
-        original_conv1_high = self.high_backbone.conv1
-        self.high_backbone.conv1 = nn.Conv2d(
-            in_channels=3,
-            out_channels=original_conv1_high.out_channels,
-            kernel_size=original_conv1_high.kernel_size,
-            stride=original_conv1_high.stride,
-            padding=original_conv1_high.padding,
-            bias=False
-        )
-        num_features_high = self.high_backbone.fc.in_features
-        self.high_backbone.fc = nn.Linear(num_features_high, out_dim)
-        
-        self.fc_head = nn.Sequential(
-            nn.Linear(512, 256),
-            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Conv1d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm1d(256),
-            nn.Dropout(0.3),
-            
-            nn.Linear(256, 128),
             nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1)
+        )
+        
+        self.high_branch = nn.Sequential(
+            nn.Conv1d(high_channels, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
-            nn.Dropout(0.3),
-            
-            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.BatchNorm1d(64),
-            nn.Dropout(0.3),
-            
-            nn.Linear(64, 2) 
+            nn.MaxPool1d(2),
+            nn.Conv1d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1)
         )
 
-    def forward(self, x_low, x_high):
-        """
-        x: (B, 3, H, W) - (B, 3, 432, 480) -> (B, 512) -> (B, 2)
-        """
-        out_lfreq = self.low_backbone(x_low)   
-        out_hfreq = self.high_backbone(x_high) 
+        self.fc_low = nn.Linear(256, 2)
+        self.fc_high = nn.Linear(256, 2)
+
+    def forward(self, lfreq_lps, hfreq_lps):
+        if lfreq_lps.dim() == 4:
+            lfreq_lps = lfreq_lps.squeeze(1)
+        if hfreq_lps.dim() == 4:
+            hfreq_lps = hfreq_lps.squeeze(1)
+            
+        low_feat = self.low_branch(lfreq_lps).view(lfreq_lps.size(0), -1)
+        out_low = self.fc_low(low_feat)
         
-        out_l = self.fc_head(out_lfreq)
-        out_h = self.fc_head(out_hfreq)
-        return out_l, out_h
+        high_feat = self.high_branch(hfreq_lps).view(hfreq_lps.size(0), -1)
+        out_high = self.fc_high(high_feat)
+        
+        return out_low, out_high
 #----------------------------------------------------------------------------------------------------
 # Model
 class Permute(nn.Module):
@@ -524,34 +438,22 @@ class AudioModel(nn.Module):
         
         self.stjgat = STJGAT(in_channels=32, out_dim=32, dropout=0.2)
         self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
-        self.resnet34 = ResNet34(out_dim=512, pretrained=False)
-        # self.resnext101 = ResNeXt101(out_dim=512, pretrained=False)
+        # self.resnet101 = ResNeX34(out_dim=512, pretrained=False)
         
     def forward(self, audio_x):
         audio_x = self.convlayers(audio_x)       # (B, 201, 256, 32)
         audio_x = self.SEre2blocks(audio_x)      # (B, 25, 16, 32)
         out_stj = self.stjgat(audio_x)     
         out_bldl = self.bldl(audio_x)    
-
+        
         return out_stj, out_bldl
-    
-class ImageModel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.resnet34 = ResNet34(out_dim=512, pretrained=False)
-        
-    def forward(self, lfreq_img, hfreq_img):
-        out_lfreq, out_hfreq = self.resnet34(lfreq_img, hfreq_img)
-        # out_lfreq, out_hfreq = self.resnext(lfreq_img, hfreq_img)
-        
-        return out_lfreq, out_hfreq
 
 class FusionModel(nn.Module):
     def __init__(self, device):
         super().__init__()
         self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
         self.audio_model = AudioModel().to(device)
-        self.image_model = ImageModel().to(device)
+        self.lps_model = LPSDualBranchCNN(low_channels=432, high_channels=433).to(device)
 
         for param in self.wavlm_model.parameters():
             param.requires_grad = False
@@ -559,6 +461,7 @@ class FusionModel(nn.Module):
     def forward(self, audio_input, lfreq_img, hfreq_img):
         wavlm_features = self.wavlm_model(audio_input).last_hidden_state
         out_stj, out_bldl = self.audio_model(wavlm_features)
-        out_lfreq, out_hfreq = self.image_model(lfreq_img, hfreq_img)
-        
-        return out_stj, out_bldl, out_lfreq, out_hfreq
+
+        out_low, out_high = self.lps_model(lfreq_img, hfreq_img)
+
+        return out_stj, out_bldl, out_low, out_high
