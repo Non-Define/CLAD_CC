@@ -351,8 +351,7 @@ class STJGAT(nn.Module):
 # Simple 1D CNN
 class LPSCNN(nn.Module):
     def __init__(self, low_channels=432, high_channels=433):
-        super(LPSDualBranchCNN, self).__init__()
-        
+        super(LPSCNN, self).__init__()
         self.low_branch = nn.Sequential(
             nn.Conv1d(low_channels, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
@@ -363,7 +362,6 @@ class LPSCNN(nn.Module):
             nn.ReLU(),
             nn.AdaptiveAvgPool1d(1)
         )
-        
         self.high_branch = nn.Sequential(
             nn.Conv1d(high_channels, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
@@ -374,7 +372,6 @@ class LPSCNN(nn.Module):
             nn.ReLU(),
             nn.AdaptiveAvgPool1d(1)
         )
-
         self.fc_low = nn.Linear(256, 2)
         self.fc_high = nn.Linear(256, 2)
 
@@ -453,15 +450,15 @@ class FusionModel(nn.Module):
         super().__init__()
         self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
         self.audio_model = AudioModel().to(device)
-        self.lps_model = LPSDualBranchCNN(low_channels=432, high_channels=433).to(device)
+        self.lps_model = LPSCNN(low_channels=432, high_channels=433).to(device)
 
         for param in self.wavlm_model.parameters():
             param.requires_grad = False
 
     def forward(self, audio_input, lfreq_img, hfreq_img):
         wavlm_features = self.wavlm_model(audio_input).last_hidden_state
+        
         out_stj, out_bldl = self.audio_model(wavlm_features)
-
         out_low, out_high = self.lps_model(lfreq_img, hfreq_img)
 
         return out_stj, out_bldl, out_low, out_high
