@@ -12,7 +12,9 @@ import numpy as np
 import soundfile as sf
 from PIL import Image
 import torchaudio
+
 from torchvision import transforms
+from scipy import signal
 
 import torch
 import torch.nn as nn
@@ -409,87 +411,11 @@ class AddZeroPadding(nn.Module):
             left_len = random.randint(self.min_left_len, self.max_left_len)
         if right_len == None:
             right_len = random.randint(self.min_right_len, self.max_right_len)
+            
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
 '''
 class TrainDataset(Dataset):
-    def __init__(self, list_IDs, labels, audio_base_dir, image_base_dir, cut=64000, transform=None):
-        self.list_IDs = list_IDs
-        self.labels = labels
-        self.audio_base_dir = audio_base_dir
-        self.image_base_dir = image_base_dir
-        self.cut = cut
-        self.transform = transform or transforms.ToTensor()
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-
-        # ----- audio -----
-        X_audio, _ = sf.read(str(self.audio_base_dir / f"{key}.flac"))
-
-        if X_audio.shape[-1] < self.cut:
-            X_audio = np.tile(X_audio, int(self.cut / X_audio.shape[-1]) + 1)[:self.cut]
-        elif X_audio.shape[-1] > self.cut:
-            X_audio = X_audio[:self.cut]
-
-        X_audio = Tensor(X_audio)
-
-        # ----- image -----
-        image_path = self.image_base_dir / f"{key}_lps.png"
-        X_image = Image.open(str(image_path)).convert("RGB")
-        X_image = self.transform(X_image)
-        
-        H = X_image.size(1)
-        half_H = H // 2
-        X_lfreq = X_image[:, :half_H, :]
-        X_hfreq = X_image[:, half_H:, :]
-
-        y = self.labels[key]
-
-        return X_audio, X_lfreq, X_hfreq, y
-    
-class TestDataset(Dataset):
-    def __init__(self, list_IDs, audio_base_dir, image_base_dir, cut=64000, transform=None):
-        self.list_IDs = list_IDs
-        self.audio_base_dir = audio_base_dir
-        self.image_base_dir = image_base_dir
-        self.cut = cut
-        self.transform = transform or transforms.ToTensor()
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-
-        # ----- audio -----
-        X_audio, _ = sf.read(str(self.audio_base_dir / f"{key}.flac"))
-
-        if X_audio.shape[-1] < self.cut:
-            X_audio = np.tile(X_audio, int(self.cut / X_audio.shape[-1]) + 1)[:self.cut]
-        elif X_audio.shape[-1] > self.cut:
-            X_audio = X_audio[:self.cut]
-
-        X_audio = Tensor(X_audio)
-
-        # ----- image -----
-        image_path = self.image_base_dir / f"{key}_lps.png"
-        X_image = Image.open(str(image_path)).convert("RGB")
-        X_image = self.transform(X_image)
-        
-        H = X_image.size(1)
-        half_H = H // 2
-        X_lfreq = X_image[:, :half_H, :]
-        X_hfreq = X_image[:, half_H:, :]
-
-        return X_audio, X_lfreq, X_hfreq, key
-'''
-#-----------------------------------------------------------------------------------------------
-'''
-class AudioTrainDataset(Dataset):
     def __init__(self, list_IDs, labels, base_dir, cut=64600):
         self.list_IDs = list_IDs
         self.labels = labels
@@ -512,7 +438,7 @@ class AudioTrainDataset(Dataset):
         y = self.labels[key]
         return x_inp, y
 
-class AudioTestDataset(Dataset):
+class TestDataset(Dataset):
     def __init__(self, list_IDs, base_dir, cut=64600):
         self.list_IDs = list_IDs
         self.base_dir = base_dir
@@ -534,6 +460,7 @@ class AudioTestDataset(Dataset):
         return x_inp, key
 '''
 #-----------------------------------------------------------------------------------------------
+'''
 class AudioTrainDataset(Dataset):
     def __init__(self, list_IDs, labels, base_dir, cut=64000):
         self.list_IDs = list_IDs
@@ -567,6 +494,7 @@ class AudioTrainDataset(Dataset):
         lfreq_lps = Tensor(lps_low).unsqueeze(0)
         hfreq_lps = Tensor(lps_high).unsqueeze(0)
         y_label = self.labels[key]
+        
         return raw_audio, lfreq_lps, hfreq_lps, y_label
 
 class AudioTestDataset(Dataset):
@@ -600,7 +528,83 @@ class AudioTestDataset(Dataset):
         lps_high = lps_vector[mid_bin:, :]
         lfreq_img = Tensor(lps_low).unsqueeze(0)
         hfreq_img = Tensor(lps_high).unsqueeze(0)
+        
         return raw_audio, lfreq_img, hfreq_img, key
+'''
+#-----------------------------------------------------------------------------------------------
+class AudioTrainDataset(Dataset):
+    def __init__(self, list_IDs, labels, base_dir, cut=64600):
+        self.list_IDs = list_IDs
+        self.labels = labels
+        self.base_dir = base_dir
+        self.cut = cut
+        self.sr = 16000
+    
+        nyq = 0.5 * self.sr
+        cutoff = 4000
+        normal_cutoff = cutoff / nyq
+        self.b_low, self.a_low = signal.butter(5, normal_cutoff, btype='low', analog=False)
+        self.b_high, self.a_high = signal.butter(5, normal_cutoff, btype='high', analog=False)
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        audio_path = str(self.base_dir / f"{key}.flac")
+        y, _ = librosa.load(audio_path, sr=self.sr)
+        
+        if y.shape[-1] < self.cut:
+            y = np.tile(y, int(self.cut / y.shape[-1]) + 1)[:self.cut]
+        else:
+            y = y[:self.cut]
+            
+        raw_audio = Tensor(y)
+        
+        y_low = signal.lfilter(self.b_low, self.a_low, y)
+        y_high = signal.lfilter(self.b_high, self.a_high, y)
+        
+        low_vec = Tensor(y_low).unsqueeze(0)
+        high_vec = Tensor(y_high).unsqueeze(0)
+        y_label = self.labels[key]
+        
+        return raw_audio, low_vec, high_vec, y_label
+
+class AudioTestDataset(Dataset):
+    def __init__(self, list_IDs, base_dir, cut=64600):
+        self.list_IDs = list_IDs
+        self.base_dir = base_dir
+        self.cut = cut
+        self.sr = 16000
+    
+        nyq = 0.5 * self.sr
+        cutoff = 4000
+        normal_cutoff = cutoff / nyq
+        self.b_low, self.a_low = signal.butter(5, normal_cutoff, btype='low', analog=False)
+        self.b_high, self.a_high = signal.butter(5, normal_cutoff, btype='high', analog=False)
+
+    def __len__(self):
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        key = self.list_IDs[index]
+        audio_path = str(self.base_dir / f"{key}.flac")
+        y, _ = librosa.load(audio_path, sr=self.sr)
+        
+        if y.shape[-1] < self.cut:
+            y = np.tile(y, int(self.cut / y.shape[-1]) + 1)[:self.cut]
+        else:
+            y = y[:self.cut]
+            
+        raw_audio = Tensor(y)
+        
+        y_low = signal.lfilter(self.b_low, self.a_low, y)
+        y_high = signal.lfilter(self.b_high, self.a_high, y)
+        
+        low_vec = Tensor(y_low).unsqueeze(0)
+        high_vec = Tensor(y_high).unsqueeze(0)
+        
+        return raw_audio, low_vec, high_vec, key
 #-----------------------------------------------------------------------------------------------
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
