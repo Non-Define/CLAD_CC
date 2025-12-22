@@ -349,9 +349,9 @@ class STJGAT(nn.Module):
 #----------------------------------------------------------------------------------------------------
 # Freq Branch
 # Simple 1D CNN
-class LPSCNN(nn.Module):
-    def __init__(self, low_channels=432, high_channels=433):
-        super(LPSCNN, self).__init__()
+class CNN(nn.Module):
+    def __init__(self, low_channels=1, high_channels=1):
+        super(CNN, self).__init__()
         self.low_branch = nn.Sequential(
             nn.Conv1d(low_channels, 128, kernel_size=3, padding=1),
             nn.BatchNorm1d(128),
@@ -375,16 +375,16 @@ class LPSCNN(nn.Module):
         self.fc_low = nn.Linear(256, 2)
         self.fc_high = nn.Linear(256, 2)
 
-    def forward(self, lfreq_lps, hfreq_lps):
-        if lfreq_lps.dim() == 4:
-            lfreq_lps = lfreq_lps.squeeze(1)
-        if hfreq_lps.dim() == 4:
-            hfreq_lps = hfreq_lps.squeeze(1)
+    def forward(self, low_vec, high_vec):
+        if low_vec.dim() == 4:
+            low_vec = low_vec.squeeze(1)
+        if high_vec.dim() == 4:
+            high_vec = high_vec.squeeze(1)
             
-        low_feat = self.low_branch(lfreq_lps).view(lfreq_lps.size(0), -1)
+        low_feat = self.low_branch(low_vec).view(low_vec.size(0), -1)
         out_low = self.fc_low(low_feat)
         
-        high_feat = self.high_branch(hfreq_lps).view(hfreq_lps.size(0), -1)
+        high_feat = self.high_branch(high_vec).view(high_vec.size(0), -1)
         out_high = self.fc_high(high_feat)
         
         return out_low, out_high
@@ -450,7 +450,7 @@ class FusionModel(nn.Module):
         super().__init__()
         self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
         self.audio_model = AudioModel().to(device)
-        self.lps_model = LPSCNN(low_channels=432, high_channels=433).to(device)
+        self.lps_model = CNN(low_channels=1, high_channels=1).to(device)
 
         for param in self.wavlm_model.parameters():
             param.requires_grad = False
