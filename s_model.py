@@ -350,7 +350,7 @@ class STJGAT(nn.Module):
 # Freq Branch
 # Simple 1D CNN
 class CNN(nn.Module):
-    def __init__(self, low_channels=1, high_channels=1):
+    def __init__(self, low_channels=432, high_channels=433):
         super(CNN, self).__init__()
         self.low_branch = nn.Sequential(
             nn.Conv1d(low_channels, 128, kernel_size=3, padding=1),
@@ -450,15 +450,15 @@ class FusionModel(nn.Module):
         super().__init__()
         self.wavlm_model = WavLMModel.from_pretrained("microsoft/wavlm-large").to(device)
         self.audio_model = AudioModel().to(device)
-        self.lps_model = CNN(low_channels=1, high_channels=1).to(device)
+        self.sf_model = CNN(low_channels=432, high_channels=433).to(device)
 
         for param in self.wavlm_model.parameters():
             param.requires_grad = False
 
-    def forward(self, audio_input, lfreq_img, hfreq_img):
+    def forward(self, audio_input, lfreq_spe, hfreq_spe):
         wavlm_features = self.wavlm_model(audio_input).last_hidden_state
         
         out_stj, out_bldl = self.audio_model(wavlm_features)
-        out_low, out_high = self.lps_model(lfreq_img, hfreq_img)
+        out_low, out_high = self.sf_model(lfreq_spe, hfreq_spe)
 
         return out_stj, out_bldl, out_low, out_high
