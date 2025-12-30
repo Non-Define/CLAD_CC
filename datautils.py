@@ -414,53 +414,6 @@ class AddZeroPadding(nn.Module):
             
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
-'''
-class TrainDataset(Dataset):
-    def __init__(self, list_IDs, labels, base_dir, cut=64600):
-        self.list_IDs = list_IDs
-        self.labels = labels
-        self.base_dir = base_dir
-        self.cut = cut
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        
-        if X.shape[-1] < self.cut:
-            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
-        elif X.shape[-1] > self.cut:
-            X = X[:self.cut]
-
-        x_inp = Tensor(X)
-        y = self.labels[key]
-        return x_inp, y
-
-class TestDataset(Dataset):
-    def __init__(self, list_IDs, base_dir, cut=64600):
-        self.list_IDs = list_IDs
-        self.base_dir = base_dir
-        self.cut = cut
-
-    def __len__(self):
-        return len(self.list_IDs)
-
-    def __getitem__(self, index):
-        key = self.list_IDs[index]
-        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
-        
-        if X.shape[-1] < self.cut:
-            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
-        elif X.shape[-1] > self.cut:
-            X = X[:self.cut]
-
-        x_inp = Tensor(X)
-        return x_inp, key
-'''
-#-----------------------------------------------------------------------------------------------
-'''
 class AudioTrainDataset(Dataset):
     def __init__(self, list_IDs, labels, base_dir, cut=64000):
         self.list_IDs = list_IDs
@@ -488,23 +441,27 @@ class AudioTrainDataset(Dataset):
         stft_result = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length, window=self.window_type)
         magnitude = np.abs(stft_result)
         
-        # Log-Power Spectrogram
-        # lps_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
+        # Magnitude Spectrogram
+        magnitude_spectrogram = magnitude
         
         # Power Spectrogram
-        power_spectrogram = magnitude ** 2
+        # power_spectrogram = magnitude ** 2
         
-        # Magnitude Spectrogram
-        # magnitude_spectrogram = magnitude
+        # Log-Magnitude Spectrogram
+        # lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
         
-        mid_bin = lps_vector.shape[0] // 2
-        lps_low = lps_vector[:mid_bin, :]
-        lps_high = lps_vector[mid_bin:, :]
-        lfreq_lps = Tensor(lps_low).unsqueeze(0)
-        hfreq_lps = Tensor(lps_high).unsqueeze(0)
+        # Log-Power Spectrogram
+        # power_spectrogram = magnitude ** 2
+        # lps_vector = librosa.power_to_db(power_spectrogram, ref=np.max)
+        
+        mid_bin = magnitude_spectrogram.shape[0] // 2
+        spe_low = magnitude_spectrogram[:mid_bin, :]
+        spe_high = magnitude_spectrogram[mid_bin:, :]
+        lfreq_spe = Tensor(spe_low).unsqueeze(0)
+        hfreq_spe = Tensor(spe_high).unsqueeze(0)
         y_label = self.labels[key]
         
-        return raw_audio, lfreq_lps, hfreq_lps, y_label
+        return raw_audio, lfreq_spe, hfreq_spe, y_label
 
 class AudioTestDataset(Dataset):
     def __init__(self, list_IDs, base_dir, cut=64000):
@@ -532,24 +489,28 @@ class AudioTestDataset(Dataset):
         stft_result = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length, window=self.window_type)
         magnitude = np.abs(stft_result)
         
-        # Log-Power Spectrogram
-        # lps_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
+        # Magnitude Spectrogram
+        magnitude_spectrogram = magnitude
         
         # Power Spectrogram
-        power_spectrogram = magnitude ** 2
+        # power_spectrogram = magnitude ** 2
         
-        # Magnitude Spectrogram
-        # magnitude_spectrogram = magnitude
+        # Log-Magnitude Spectrogram
+        # lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
         
-        mid_bin = lps_vector.shape[0] // 2
-        lps_low = lps_vector[:mid_bin, :]
-        lps_high = lps_vector[mid_bin:, :]
-        lfreq_img = Tensor(lps_low).unsqueeze(0)
-        hfreq_img = Tensor(lps_high).unsqueeze(0)
+        # Log-Power Spectrogram
+        # power_spectrogram = magnitude ** 2
+        # lps_vector = librosa.power_to_db(power_spectrogram, ref=np.max)
         
-        return raw_audio, lfreq_img, hfreq_img, key
-'''
+        mid_bin = magnitude_spectrogram.shape[0] // 2
+        spe_low = magnitude_spectrogram[:mid_bin, :]
+        spe_high = magnitude_spectrogram[mid_bin:, :]
+        lfreq_spe = Tensor(spe_low).unsqueeze(0)
+        hfreq_spe = Tensor(spe_high).unsqueeze(0)
+        
+        return raw_audio, lfreq_spe, hfreq_spe, key
 #-----------------------------------------------------------------------------------------------
+'''
 class AudioTrainDataset(Dataset):
     def __init__(self, list_IDs, labels, base_dir, cut=64600):
         self.list_IDs = list_IDs
@@ -623,6 +584,7 @@ class AudioTestDataset(Dataset):
         high_vec = Tensor(y_high).unsqueeze(0)
         
         return raw_audio, low_vec, high_vec, key
+'''
 #-----------------------------------------------------------------------------------------------
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
