@@ -20,8 +20,8 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
-from datautils import TrainDataset, TestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
-from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, ResNet34, ResNeXt101, Permute, AudioModel, ImageModel, FusionModel
+from datautils import AudioTrainDataset, AudioTestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
+from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, Permute, AudioModel, FusionModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
 from evaluation.calculate_modules import * 
@@ -33,6 +33,7 @@ from tqdm import tqdm
 # Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
+
 # Configurations
 gpu = 0  # GPU id to use
 torch.cuda.set_device(gpu)
@@ -66,7 +67,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "WavLM_{}_64600_test".format(selected_manipulation_key)
+    model_tag = "WavLM_{}_64600_lms".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -173,11 +174,8 @@ def get_loader(
     """Make PyTorch DataLoaders for train / developement"""
 
     audio_trn_database_path = database_path / "flac_T/"
-    image_trn_database_path = database_path / "image" / "lps_T/"
     audio_dev_database_path = database_path / "flac_D/"
-    image_dev_database_path = database_path / "image" / "lps_D/"
     audio_eval_database_path = database_path / "flac_E_eval/"
-    image_eval_database_path = database_path / "image" /"lps_E_eval/"
     trn_list_path = (database_path /
                      "ASVspoof5.train.tsv")
     dev_trial_path = (database_path /
@@ -194,11 +192,10 @@ def get_loader(
     )
     print("no. train files:", len(file_train))
 
-    train_set = TrainDataset(
+    train_set = AudioTrainDataset(
         list_IDs=file_train,
         labels=d_label_trn,
-        audio_base_dir=audio_trn_database_path,
-        image_base_dir=image_trn_database_path,
+        base_dir=audio_trn_database_path,
         cut=cut
     )
 
@@ -224,10 +221,9 @@ def get_loader(
     )
     print("no. dev files:", len(file_dev))
 
-    dev_set = TestDataset(
+    dev_set = AudioTestDataset(
         list_IDs=file_dev,
-        audio_base_dir=audio_dev_database_path,
-        image_base_dir=image_dev_database_path,
+        base_dir=audio_dev_database_path,
         cut=cut
     )
 
@@ -248,10 +244,9 @@ def get_loader(
     )
     print("no. eval files:", len(file_eval))
 
-    eval_set = TestDataset(
+    eval_set = AudioTestDataset(
         list_IDs=file_eval,
-        audio_base_dir=audio_eval_database_path,
-        image_base_dir=image_eval_database_path,
+        base_dir=audio_eval_database_path,
         cut=cut
     )
 
@@ -333,7 +328,6 @@ def preprocessing(
     X_lfreq = X_lfreq.to(device)
     X_hfreq = X_hfreq.to(device)
     
-
     if is_train:
         if augmentations_on_cpu is not None:
             X_audio = augmentations_on_cpu(X_audio)
@@ -392,7 +386,7 @@ def produce_evaluation_file(
             scores_lfreq = out_lfreq[:, 1]
             scores_hfreq = out_hfreq[:, 1]
             
-            fused_scores = 0.25 * (score_stj, score_bldl, score_lfreq, score_hfreq)
+            fused_scores = (scores_stj + scores_bldl + scores_lfreq + scores_hfreq) / 4.0
             batch_score = fused_scores.data.cpu().numpy().ravel()
             
         # add outputs
