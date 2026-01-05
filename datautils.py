@@ -445,18 +445,18 @@ class AudioTrainDataset(Dataset):
         # magnitude_spectrogram = magnitude
         
         # Power Spectrogram
-        # power_spectrogram = magnitude ** 2
+        power_spectrogram = magnitude ** 2
         
         # Log-Magnitude Spectrogram
-        lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
+        # lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
         
         # Log-Power Spectrogram
         # power_spectrogram = magnitude ** 2
         # lps_vector = librosa.power_to_db(power_spectrogram, ref=np.max)
         
-        mid_bin = lms_vector.shape[0] // 2
-        spe_low = lms_vector[:mid_bin, :]
-        spe_high = lms_vector[mid_bin:, :]
+        mid_bin = power_spectrogram.shape[0] // 2
+        spe_low = power_spectrogram[:mid_bin, :]
+        spe_high = power_spectrogram[mid_bin:, :]
         lfreq_spe = Tensor(spe_low).unsqueeze(0)
         hfreq_spe = Tensor(spe_high).unsqueeze(0)
         y_label = self.labels[key]
@@ -493,18 +493,18 @@ class AudioTestDataset(Dataset):
         # magnitude_spectrogram = magnitude
         
         # Power Spectrogram
-        # power_spectrogram = magnitude ** 2
+        power_spectrogram = magnitude ** 2
         
         # Log-Magnitude Spectrogram
-        lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
+        # lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
         
         # Log-Power Spectrogram
         # power_spectrogram = magnitude ** 2
         # lps_vector = librosa.power_to_db(power_spectrogram, ref=np.max)
         
-        mid_bin = lms_vector.shape[0] // 2
-        spe_low = lms_vector[:mid_bin, :]
-        spe_high = lms_vector[mid_bin:, :]
+        mid_bin = power_spectrogram.shape[0] // 2
+        spe_low = power_spectrogram[:mid_bin, :]
+        spe_high = power_spectrogram[mid_bin:, :]
         lfreq_spe = Tensor(spe_low).unsqueeze(0)
         hfreq_spe = Tensor(spe_high).unsqueeze(0)
         
