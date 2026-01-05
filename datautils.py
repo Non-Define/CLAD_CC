@@ -450,10 +450,6 @@ class AudioTrainDataset(Dataset):
         # Log-Magnitude Spectrogram
         # lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
         
-        # Log-Power Spectrogram
-        # power_spectrogram = magnitude ** 2
-        # lps_vector = librosa.power_to_db(power_spectrogram, ref=np.max)
-        
         mid_bin = power_spectrogram.shape[0] // 2
         spe_low = power_spectrogram[:mid_bin, :]
         spe_high = power_spectrogram[mid_bin:, :]
@@ -497,10 +493,6 @@ class AudioTestDataset(Dataset):
         
         # Log-Magnitude Spectrogram
         # lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
-        
-        # Log-Power Spectrogram
-        # power_spectrogram = magnitude ** 2
-        # lps_vector = librosa.power_to_db(power_spectrogram, ref=np.max)
         
         mid_bin = power_spectrogram.shape[0] // 2
         spe_low = power_spectrogram[:mid_bin, :]
