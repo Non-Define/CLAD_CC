@@ -435,7 +435,6 @@ class AudioModel(nn.Module):
         
         self.stjgat = STJGAT(in_channels=32, out_dim=32, dropout=0.2)
         self.bldl = BLDL(input_size=512, hidden_size=256, num_layers=2)
-        # self.resnet101 = ResNeX34(out_dim=512, pretrained=False)
         
     def forward(self, audio_x):
         audio_x = self.convlayers(audio_x)       # (B, 201, 256, 32)
@@ -455,10 +454,10 @@ class FusionModel(nn.Module):
         for param in self.wavlm_model.parameters():
             param.requires_grad = False
 
-    def forward(self, audio_input, lfreq_ps, hfreq_ps):
+    def forward(self, audio_input, lfreq_lms, hfreq_lms):
         wavlm_features = self.wavlm_model(audio_input).last_hidden_state
         
         out_stj, out_bldl = self.audio_model(wavlm_features)
-        out_low, out_high = self.sf_model(lfreq_ps, hfreq_ps)
+        out_low, out_high = self.sf_model(lfreq_lms, hfreq_lms)
 
         return out_stj, out_bldl, out_low, out_high
