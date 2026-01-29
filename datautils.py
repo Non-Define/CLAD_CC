@@ -415,80 +415,48 @@ class AddZeroPadding(nn.Module):
         return self.add_zero_padding(audio, left_len, right_len)
 #-----------------------------------------------------------------------------------------------
 class AudioTrainDataset(Dataset):
-    def __init__(self, list_IDs, labels, base_dir, cut=64000):
+    def __init__(self, list_IDs, labels, base_dir, cut=64600):
         self.list_IDs = list_IDs
         self.labels = labels
         self.base_dir = base_dir
         self.cut = cut
-        self.n_fft = 1728
-        self.hop_length = 130
-        self.window_type = 'blackman'
-        self.sr = 16000
 
     def __len__(self):
         return len(self.list_IDs)
 
     def __getitem__(self, index):
         key = self.list_IDs[index]
-        audio_path = str(self.base_dir / f"{key}.flac")
-        y, _ = librosa.load(audio_path, sr=self.sr)
-        if y.shape[-1] < self.cut:
-            y = np.tile(y, int(self.cut / y.shape[-1]) + 1)[:self.cut]
-        else:
-            y = y[:self.cut]
-        raw_audio = Tensor(y)
-        
-        stft_result = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length, window=self.window_type)
-        magnitude = np.abs(stft_result)
-        
-        # Log-Magnitude Spectrogram
-        lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
-        
-        mid_bin = lms_vector.shape[0] // 2
-        spe_low = lms_vector[:mid_bin, :]
-        spe_high = lms_vector[mid_bin:, :]
-        lfreq_spe = Tensor(spe_low).unsqueeze(0)
-        hfreq_spe = Tensor(spe_high).unsqueeze(0)
-        y_label = self.labels[key]
-        
-        return raw_audio, lfreq_spe, hfreq_spe, y_label
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+
+        if X.shape[-1] < self.cut:
+            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
+        elif X.shape[-1] > self.cut:
+            X = X[:self.cut]
+
+        x_inp = Tensor(X)
+        y = self.labels[key]
+        return x_inp, y
 
 class AudioTestDataset(Dataset):
-    def __init__(self, list_IDs, base_dir, cut=64000):
+    def __init__(self, list_IDs, base_dir, cut=64600):
         self.list_IDs = list_IDs
         self.base_dir = base_dir
         self.cut = cut
-        self.n_fft = 1728
-        self.hop_length = 130
-        self.window_type = 'blackman'
-        self.sr = 16000
 
     def __len__(self):
         return len(self.list_IDs)
 
     def __getitem__(self, index):
         key = self.list_IDs[index]
-        audio_path = str(self.base_dir / f"{key}.flac")
-        y, _ = librosa.load(audio_path, sr=self.sr)
-        if y.shape[-1] < self.cut:
-            y = np.tile(y, int(self.cut / y.shape[-1]) + 1)[:self.cut]
-        else:
-            y = y[:self.cut]
-        raw_audio = Tensor(y)
-        
-        stft_result = librosa.stft(y, n_fft=self.n_fft, hop_length=self.hop_length, window=self.window_type)
-        magnitude = np.abs(stft_result)
-        
-        # Log-Magnitude Spectrogram
-        lms_vector = librosa.amplitude_to_db(magnitude, ref=np.max)
-        
-        mid_bin = lms_vector.shape[0] // 2
-        spe_low = lms_vector[:mid_bin, :]
-        spe_high = lms_vector[mid_bin:, :]
-        lfreq_spe = Tensor(spe_low).unsqueeze(0)
-        hfreq_spe = Tensor(spe_high).unsqueeze(0)
-        
-        return raw_audio, lfreq_spe, hfreq_spe, key
+        X, _ = sf.read(str(self.base_dir / f"{key}.flac"))
+
+        if X.shape[-1] < self.cut:
+            X = np.tile(X, int(self.cut / X.shape[-1]) + 1)[:self.cut]
+        elif X.shape[-1] > self.cut:
+            X = X[:self.cut]
+
+        x_inp = Tensor(X)
+        return x_inp, key
 #-----------------------------------------------------------------------------------------------
 def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
