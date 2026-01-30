@@ -6,6 +6,8 @@ import sys
 from torch.autograd import Variable
 import math
 
+# --------------------------------------------------------------------------------------------------
+# SincNet
 def flip(x, dim):
     xsize = x.size()
     dim = x.dim() + dim if dim < 0 else dim
@@ -53,7 +55,7 @@ class SincConv_fast(nn.Module):
     def to_hz(mel):
         return 700 * (10 ** (mel / 2595) - 1)
 
-    def __init__(self, out_channels=15, kernel_size, sample_rate=16000, in_channels=1,
+    def __init__(self, out_channels=15, kernel_size=251, sample_rate=16000, in_channels=1,
                  stride=1, padding=0, dilation=1, bias=False, groups=1, min_low_hz=50, min_band_hz=50):
 
         super(SincConv_fast,self).__init__()
@@ -123,38 +125,99 @@ class SincConv_fast(nn.Module):
         self.n_ = self.n_.to(waveforms.device)
         self.window_ = self.window_.to(waveforms.device)
 
-        low = self.min_low_hz  + torch.abs(self.low_hz_)
-        
-        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_),self.min_low_hz,self.sample_rate/2)
-        band=(high-low)[:,0]
+        low = self.min_low_hz + torch.abs(self.low_hz_)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate/2)
+        band = (high - low)[:, 0]
         
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
 
-        band_pass_left=((torch.sin(f_times_t_high)-torch.sin(f_times_t_low))/(self.n_/2))*self.window_ # Equivalent of Eq.4 of the reference paper (SPEAKER RECOGNITION FROM RAW WAVEFORM WITH SINCNET). I just have expanded the sinc and simplified the terms. This way I avoid several useless computations. 
-        band_pass_center = 2*band.view(-1,1)
-        band_pass_right= torch.flip(band_pass_left,dims=[1])
+        band_pass_left = ((torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2)) * self.window_
+        band_pass_center = 2 * band.view(-1, 1)
+        band_pass_right = torch.flip(band_pass_left, dims=[1])
         
-        band_pass=torch.cat([band_pass_left,band_pass_center,band_pass_right],dim=1)
-        band_pass = band_pass / (2*band[:,None])
-        
+        band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
+        band_pass = band_pass / (2 * band[:, None])
+    
+        filters = (band_pass).view(self.out_channels, 1, self.kernel_size)
 
-        self.filters = (band_pass).view(
-            self.out_channels, 1, self.kernel_size)
+        low_filters = filters[0:10, :, :]
+        low_freq = F.conv1d(waveforms, low_filters, stride=self.stride,
+                            padding=self.padding, dilation=self.dilation,
+                            bias=None, groups=1) # (B, 10, 64350)
 
-        total_out = F.conv1d(waveforms, self.filters, stride=self.stride,
+        high_filters = filters[10:15, :, :]
+        high_freq = F.conv1d(waveforms, high_filters, stride=self.stride,
                              padding=self.padding, dilation=self.dilation,
-                             bias=None, groups=1)
+                             bias=None, groups=1) # (B, 5, 64350)
 
-        low_freq = total_out[:, 0:10, :]   
-        high_freq = total_out[:, 10:15, :]
+        return low_freq, high_freq
+# --------------------------------------------------------------------------------------------------
+# Gating-Res2Net
+class GatingRe2blocks(nn.Module):
+    def __init__(self, out_channels=125, scale=5):
+        super(GatingRe2blocks, self).__init__()
+        self.scale = scale
+        self.width = out_channels // scale
+        
+        self.conv1_list = nn.ModuleList([
+            nn.Conv1d(2, self.width, kernel_size=1) for _ in range(scale)
+        ])
+        self.conv3_list = nn.ModuleList([
+            nn.Conv1d(self.width, self.width, kernel_size=3, padding=1) for _ in range(scale - 1)
+        ])
+        self.gating_network = nn.Sequential(
+            nn.Linear(out_channels, out_channels // 4), 
+            nn.ReLU(inplace=True),
+            nn.Linear(out_channels // 4, scale),        
+            nn.Sigmoid()                                 
+        )
+        self.identity_proj = nn.Conv1d(10, out_channels, kernel_size=1)
+        self.proj_final = nn.Conv1d(out_channels, out_channels, kernel_size=1)
+        self.bn_list = nn.ModuleList([nn.BatchNorm1d(self.width) for _ in range(scale)])
+        self.relu = nn.ReLU(inplace=True)
+        self.final_bn = nn.BatchNorm1d(out_channels)
+        self.gap = nn.AdaptiveAvgPool1d(1)              
+        self.ln = nn.LayerNorm(out_channels)         
+        self.fc1 = nn.Linear(out_channels, 64)          # 125 -> 64
+        self.leaky_relu = nn.LeakyReLU(0.2)             
+        self.dropout = nn.Dropout(p=0.3)                
+        self.fc2 = nn.Linear(64, 2)                     # 64 -> 2
 
-        return total_out, low_freq, high_freq
-    
-    
-    
-    
-    
+    def forward(self, low_freq):
+        identity = self.identity_proj(low_freq)
+        low_grouped = torch.chunk(low_freq, self.scale, dim=1)
+        
+        y = [None] * self.scale
+        y[4] = self.relu(self.bn_list[4](self.conv1_list[4](low_grouped[4])))
+        
+        for i in range(self.scale - 2, -1, -1):
+            x_i = self.conv1_list[i](low_grouped[i])
+            yi = self.conv3_list[i](x_i + y[i+1])
+            y[i] = self.relu(self.bn_list[i](yi))
+            
+        ms_feat = torch.cat(y, dim=1)
+        avg_pool = torch.mean(ms_feat, dim=-1)
+        gate_weights = self.gating_network(avg_pool) 
+ 
+        y_weighted = []
+        for i in range(self.scale):
+            w = gate_weights[:, i].view(-1, 1, 1)
+            y_weighted.append(y[i] * w)
+        
+        ms_feat_gated = torch.cat(y_weighted, dim=1)
+        ms_feat_gated = self.proj_final(ms_feat_gated)
+        
+        out = self.relu(self.final_bn(ms_feat_gated + identity))  # (B, 125, 64350)
+        out_pooled = self.gap(out).squeeze(-1)          # (B, 125, 1) -> (B, 125)
+        out_normed = self.ln(out_pooled)                
+        
+        x = self.fc1(out_normed)
+        x = self.leaky_relu(x)                          
+        x = self.dropout(x)
+        final_output = self.fc2(x)                      # (B, 2)
+        
+        return final_output
     
     
     
