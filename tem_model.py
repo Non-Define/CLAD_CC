@@ -154,6 +154,7 @@ class SincConv_fast(nn.Module):
         return low_freq, high_freq
 # --------------------------------------------------------------------------------------------------
 # Gating-Res2Net
+# LF
 class GatingRe2blocks(nn.Module):
     def __init__(self, out_channels=125, scale=5):
         super(GatingRe2blocks, self).__init__()
