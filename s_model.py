@@ -696,7 +696,7 @@ class FusionModel(nn.Module):
         for param in self.wavlm_model.parameters():
             param.requires_grad = False
 
-    def forward(self, audio_input, lfreq_lms, hfreq_lms):
+    def forward(self, audio_input):
         wavlm_features = self.wavlm_model(audio_input).last_hidden_state
         out_stj, out_bldl = self.time_model(wavlm_features)
         
