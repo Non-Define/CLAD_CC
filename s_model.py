@@ -1,5 +1,6 @@
 # Define Model (XLSR-ORIG)
 # by HH
+import math
 import random
 import numpy as np
 from typing import Union
