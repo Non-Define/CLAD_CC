@@ -222,7 +222,7 @@ class GatingRe2blocks(nn.Module):
 # --------------------------------------------------------------------------------------------------
 # Wavelet
 # HF
-class HighFreqWaveletBranch(nn.Module):
+class WNN(nn.Module):
     def __init__(self, in_channels=5, num_classes=2):
         super().__init__()
         lp = torch.tensor([1.0, 1.0]) / 2**0.5
