@@ -21,7 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchcontrib.optim import SWA
 
 from datautils import AudioTrainDataset, AudioTestDataset, genSpoof_list, AddWhiteNoise, VolumeChange, AddFade, WaveTimeStretch, PitchShift, CodecApply, AddEnvironmentalNoise, ResampleAugmentation, AddEchoes, TimeShift, TimeMask, FreqMask, AddZeroPadding
-from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, Permute, AudioModel, FusionModel
+from s_model import ConvLayers, SELayer, SERe2blocks, BiLSTM, BLDL, GraphAttentionLayer, STJGAT, Permute, AudioModel, SincConv_fast, GatingRe2blocks, WNN, FusionModel
 
 from evaluation.calculate_metrics import calculate_minDCF_EER_CLLR
 from evaluation.calculate_modules import * 
@@ -67,7 +67,7 @@ def main(args: argparse.Namespace) -> None:
     
     # define model related paths   
     selected_manipulation_key, selected_transform = augmentation(config)
-    model_tag = "WavLM_{}_64600_ps".format(selected_manipulation_key)
+    model_tag = "WavLM(4)_{}_64600_raw".format(selected_manipulation_key)
     if args.comment:
         model_tag = model_tag + "_{}".format(args.comment)
     model_tag = output_dir / model_tag
@@ -193,7 +193,7 @@ def get_loader(
     print("no. train files:", len(file_train))
 
     train_set = AudioTrainDataset(
-        list_IDs=file_train,
+        list_IDs=file_train[:300],
         labels=d_label_trn,
         base_dir=audio_trn_database_path,
         cut=cut
@@ -222,7 +222,7 @@ def get_loader(
     print("no. dev files:", len(file_dev))
 
     dev_set = AudioTestDataset(
-        list_IDs=file_dev,
+        list_IDs=file_dev[:300],
         base_dir=audio_dev_database_path,
         cut=cut
     )
@@ -317,16 +317,12 @@ def augmentation(config):
 def preprocessing(
     is_train,
     X_audio: torch.Tensor,
-    X_lfreq: torch.Tensor,
-    X_hfreq: torch.Tensor,
     y: torch.Tensor,
     model, encoder, criterion, optimizer, device, cut_length, config, selected_transform=None, augmentations_on_cpu=None, args=None):
     selected_manipulation_key, selected_transform = augmentation(config)
     
     X_audio = X_audio.squeeze(1).to(device)
     labels = y.to(device)
-    X_lfreq = X_lfreq.to(device)
-    X_hfreq = X_hfreq.to(device)
     
     if is_train:
         if augmentations_on_cpu is not None:
@@ -357,7 +353,7 @@ def preprocessing(
             X_audio[labels == 0] = augmented_audio
 
     if is_train:
-        return X_audio, X_lfreq, X_hfreq, y
+        return X_audio, y
 #-----------------------------------------------------------------------------------------------
 # Eval(validation)
 def produce_evaluation_file(
@@ -374,13 +370,11 @@ def produce_evaluation_file(
     score_list = []
     cut_length = 64600
     
-    for X_audio, X_lfreq, X_hfreq, utt_id in tqdm(data_loader):
+    for X_audio, utt_id in tqdm(data_loader):
         X_audio = X_audio.to(device)
-        X_lfreq = X_lfreq.to(device)
-        X_hfreq = X_hfreq.to(device)
         
         with torch.no_grad():
-            out_stj, out_bldl, out_lfreq, out_hfreq = model(X_audio, X_lfreq, X_hfreq)
+            out_stj, out_bldl, out_lfreq, out_hfreq = model(X_audio)
             scores_stj = out_stj[:, 1]
             scores_bldl = out_bldl[:, 1]
             scores_lfreq = out_lfreq[:, 1]
@@ -418,16 +412,14 @@ def train_epoch(
     weight = torch.FloatTensor([0.1, 0.9]).to(device)
     criterion = nn.CrossEntropyLoss(weight=weight)
     
-    for X_audio, X_lfreq, X_hfreq, y in tqdm(trn_loader):
+    for X_audio, y in tqdm(trn_loader):
         batch_size = X_audio.size(0)
         num_total += batch_size
         
         selected_transform = augmentation(config)
-        X_audio, X_lfreq, X_hfreq, y = preprocessing(
+        X_audio, y = preprocessing(
             is_train=True,
             X_audio=X_audio,
-            X_lfreq=X_lfreq,
-            X_hfreq=X_hfreq, 
             y=y,
             model=None,
             encoder=None,
@@ -441,11 +433,9 @@ def train_epoch(
         )
             
         X_audio = X_audio.to(device)
-        X_lfreq = X_lfreq.to(device)
-        X_hfreq = X_hfreq.to(device)
         y = y.view(-1).type(torch.int64).to(device)
         
-        out_stj, out_bldl, out_lfreq, out_hfreq = model(X_audio, X_lfreq, X_hfreq)
+        out_stj, out_bldl, out_lfreq, out_hfreq = model(X_audio)
 
         loss_stj = criterion(out_stj, y)
         loss_bldl = criterion(out_bldl, y)
