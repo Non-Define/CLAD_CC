@@ -349,7 +349,7 @@ class STJGAT(nn.Module):
         return out
 #----------------------------------------------------------------------------------------------------
 # Freq Branch
-# SincNet
+# SincNet (Original)
 def flip(x, dim):
     xsize = x.size()
     dim = x.dim() + dim if dim < 0 else dim
