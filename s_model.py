@@ -366,7 +366,7 @@ def sinc(band,t_right):
     y=torch.cat([y_left,Variable(torch.ones(1)).cuda(),y_right])
 
     return y
-
+    
 class SincConv_fast(nn.Module):
     """Sinc-based convolution
     Parameters
@@ -410,11 +410,11 @@ class SincConv_fast(nn.Module):
 
         self.out_channels = out_channels
         self.kernel_size = kernel_size
-
+        
         # Forcing the filters to be odd (i.e, perfectly symmetrics)
         if kernel_size%2==0:
             self.kernel_size=self.kernel_size+1
-
+            
         self.stride = stride
         self.padding = padding
         self.dilation = dilation
@@ -436,7 +436,7 @@ class SincConv_fast(nn.Module):
                           self.to_mel(high_hz),
                           self.out_channels + 1)
         hz = self.to_hz(mel)
-
+        
         # filter lower frequency (out_channels, 1)
         self.low_hz_ = nn.Parameter(torch.Tensor(hz[:-1]).view(-1, 1))
 
@@ -470,17 +470,17 @@ class SincConv_fast(nn.Module):
         low = self.min_low_hz + torch.abs(self.low_hz_)
         high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate/2)
         band = (high - low)[:, 0]
-
+        
         f_times_t_low = torch.matmul(low, self.n_)
         f_times_t_high = torch.matmul(high, self.n_)
 
         band_pass_left = ((torch.sin(f_times_t_high) - torch.sin(f_times_t_low)) / (self.n_ / 2)) * self.window_
         band_pass_center = 2 * band.view(-1, 1)
         band_pass_right = torch.flip(band_pass_left, dims=[1])
-
+        
         band_pass = torch.cat([band_pass_left, band_pass_center, band_pass_right], dim=1)
         band_pass = band_pass / (2 * band[:, None])
-
+    
         filters = (band_pass).view(self.out_channels, 1, self.kernel_size)
 
         low_filters = filters[0:10, :, :]
@@ -502,7 +502,7 @@ class GatingRe2blocks(nn.Module):
         super(GatingRe2blocks, self).__init__()
         self.scale = scale
         self.width = out_channels // scale
-
+        
         self.conv1_list = nn.ModuleList([
             nn.Conv1d(2, self.width, kernel_size=1) for _ in range(scale)
         ])
@@ -530,36 +530,36 @@ class GatingRe2blocks(nn.Module):
     def forward(self, low_freq):
         identity = self.identity_proj(low_freq)
         low_grouped = torch.chunk(low_freq, self.scale, dim=1)
-
+        
         y = [None] * self.scale
         y[4] = self.relu(self.bn_list[4](self.conv1_list[4](low_grouped[4])))
-
+        
         for i in range(self.scale - 2, -1, -1):
             x_i = self.conv1_list[i](low_grouped[i])
             yi = self.conv3_list[i](x_i + y[i+1])
             y[i] = self.relu(self.bn_list[i](yi))
-
+            
         ms_feat = torch.cat(y, dim=1)
         avg_pool = torch.mean(ms_feat, dim=-1)
         gate_weights = self.gating_network(avg_pool) 
-
+ 
         y_weighted = []
         for i in range(self.scale):
             w = gate_weights[:, i].view(-1, 1, 1)
             y_weighted.append(y[i] * w)
-
+        
         ms_feat_gated = torch.cat(y_weighted, dim=1)
         ms_feat_gated = self.proj_final(ms_feat_gated)
-
+        
         out = self.relu(self.final_bn(ms_feat_gated + identity))  # (B, 125, 64350)
         out_pooled = self.gap(out).squeeze(-1)          # (B, 125, 1) -> (B, 125)
         out_normed = self.ln(out_pooled)                
-
+        
         x = self.fc1(out_normed)
         x = self.leaky_relu(x)                          
         x = self.dropout(x)
         out = self.fc2(x)                      # (B, 2)
-
+        
         return out
 # --------------------------------------------------------------------------------------------------
 # HF
