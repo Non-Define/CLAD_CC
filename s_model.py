@@ -703,7 +703,7 @@ class FusionModel(nn.Module):
         raw_audio = audio_input.unsqueeze(1) if audio_input.dim() == 2 else audio_input
         low_freq, high_freq = self.sinc_layer(raw_audio)
         
-        out_low = self.high_branch(low_freq)
-        out_high = self.low_branch(high_freq)
+        out_low = self.low_branch(low_freq)
+        out_high = self.high_branch(high_freq)
 
         return out_stj, out_bldl, out_low, out_high
